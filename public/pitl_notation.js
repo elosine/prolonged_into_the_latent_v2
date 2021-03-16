@@ -68,6 +68,12 @@ var cresSvgCrvs = [];
 var cresCrvFollowers = [];
 var cresCrvFollowersRect = [];
 let eventMatrix, sec2eventMatrix, sec3eventMatrixHocket, sec3eventMatrixCres, sec3eventMatrixAccel, sec4eventMatrix;
+let partsToRun_eventMatrix = [];
+let partsToRun_sec2eventMatrix = [];
+let partsToRun_sec3eventMatrixHocket = [];
+let partsToRun_sec3eventMatrixCres = [];
+let partsToRun_sec3eventMatrixAccel = [];
+let partsToRun_sec4eventMatrix = [];
 var sec2CresStart;
 var mainVoiceAmp = 0.25;
 // MISC ////////////////////////////////////////
@@ -79,7 +85,38 @@ var leadTime = 8.0;
 let cresDurs, sec3HocketPlayers, sec3Cres, sec3Accel, pitchChanges;
 let sec2start, endSec2Time, sec3StartTime, sec3EndTime;
 var urlArgsDict;
-let partsToRun = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11,12,13,14,15];
+let partsToRun = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
+// let partsToRun = [3, 13];
+var crvFollowData = [];
+//<editor-fold>  < GLOBAL VARS - GATES >                 //
+var animationGo = true;
+var activateStartBtn = true;
+var activatePauseBtn = false;
+var activateStopBtn = false;
+var startPieceGate = true;
+//</editor-fold> END GLOBAL VARS - GATES END
+//<editor-fold>  < GLOBAL VARS - TIMESYNC ENGINE >       //
+var tsServer;
+if (window.location.hostname == 'localhost') {
+  tsServer = '/timesync';
+} else {
+  tsServer = window.location.hostname + '/timesync';
+}
+const TS = timesync.create({
+  server: tsServer,
+  // server: '/timesync',
+  interval: 1000
+});
+//</editor-fold> > END GLOBAL VARS - TIMESYNC ENGINE END
+//<editor-fold>  < GLOBAL VARS - SOCKET IO >             //
+var ioConnection;
+if (window.location.hostname == 'localhost') {
+  ioConnection = io();
+} else {
+  ioConnection = io.connect(window.location.hostname);
+}
+const SOCKET = ioConnection;
+//</editor-fold> > END GLOBAL VARS - SOCKET IO END
 //<editor-fold>  < NOTES MIDI DICTIONARY >               //
 var notesMidiDict = {
   36: '/svgs/036c2.svg',
@@ -181,7 +218,7 @@ var notesMidiDict = {
 function setup() {
 
   partsToRun.forEach((partToRun, ptrix) => {
-    var newNO = mkNotationObject(ptrix, CANVASW, CANVASH, RUNWAYLENGTH, [ptrix, partsToRun.length]);
+    var newNO = mkNotationObject(partToRun, CANVASW, CANVASH, RUNWAYLENGTH, [ptrix, partsToRun.length]);
     // notationObjects.push(newNO);
   });
   loadScoreData();
@@ -213,39 +250,54 @@ function setup() {
     retrivedFileData = retrivedFileDataObj.fileData;
     retrivedFileData_parsed = JSON.parse(retrivedFileData);
     timeCodeByPart = retrivedFileData_parsed;
-    eventMatrix = mkEventMatrixSec1();
 
     retrivedFileDataObj = await retriveFile('savedScoreData/sec2TimeCodeByPart.txt');
     retrivedFileData = retrivedFileDataObj.fileData;
     retrivedFileData_parsed = JSON.parse(retrivedFileData);
     sec2TimeCodeByPart = retrivedFileData_parsed;
-    sec2eventMatrix = mkEventMatrixSec2();
 
     retrivedFileDataObj = await retriveFile('savedScoreData/sec3HocketTimeCode.txt');
     retrivedFileData = retrivedFileDataObj.fileData;
     retrivedFileData_parsed = JSON.parse(retrivedFileData);
     sec3HocketTimeCode = retrivedFileData_parsed;
-    sec3eventMatrixHocket = mkEventMatrixSec3Hocket();
 
     retrivedFileDataObj = await retriveFile('savedScoreData/sec3CresTimeCodeByPart.txt');
     retrivedFileData = retrivedFileDataObj.fileData;
     retrivedFileData_parsed = JSON.parse(retrivedFileData);
     sec3CresTimeCodeByPart = retrivedFileData_parsed;
-    sec3eventMatrixCres = mkEventMatrixSec3Cres();
 
     retrivedFileDataObj = await retriveFile('savedScoreData/sec3AccelTimeCode.txt');
     retrivedFileData = retrivedFileDataObj.fileData;
     retrivedFileData_parsed = JSON.parse(retrivedFileData);
     sec3AccelTimeCode = retrivedFileData_parsed;
-    sec3eventMatrixAccel = mkEventMatrixSec3Accel();
 
     retrivedFileDataObj = await retriveFile('savedScoreData/sec4TimeCode.txt');
     retrivedFileData = retrivedFileDataObj.fileData;
     retrivedFileData_parsed = JSON.parse(retrivedFileData);
     sec4TimeCode = retrivedFileData_parsed;
-    sec4eventMatrix = mkEventMatrixSec4();
 
-    notes = loadInitialNotation();
+    notes = loadNotationSVGsPerSection();
+    partsToRun.forEach((numPartToRun, ix) => {
+      loadInitialNotation(numPartToRun);
+      partsToRun_eventMatrix.push(mkEventMatrixSec1_singlePart(numPartToRun));
+      partsToRun_sec2eventMatrix.push(mkEventMatrixSec2_singlePart(numPartToRun));
+      sec3HocketPlayers.forEach((hp) => {
+        if (numPartToRun == hp) {
+          partsToRun_sec3eventMatrixHocket.push(mkEventMatrixSec3Hocket_singlePart(numPartToRun));
+        }
+      });
+      sec3Cres.forEach((cp) => {
+        if (numPartToRun == cp) {
+          partsToRun_sec3eventMatrixCres.push((numPartToRun));
+        }
+      });
+      sec3Accel.forEach((ap) => {
+        if (numPartToRun == ap) {
+          partsToRun_sec3eventMatrixAccel.push((numPartToRun));
+        }
+      });
+      partsToRun_sec4eventMatrix.push((numPartToRun));
+    });
     // init();
 
     function retriveFile(path) {
@@ -531,296 +583,116 @@ function mkNotationObject(ix, w, h, len, placementOrder) {
 
 //<editor-fold> << FUNC TO LOAD INITIAL NOTATION FOR ALL PARTS  >> --------- //
 // var ranges = [[40, 60],[48, 67],[53, 74],[60, 81]];
-function loadInitialNotation() {
+//Load All pitch SVGs here
+//Each section btas has its own pitch svg dictionary
+function loadNotationSVGsPerSection() {
   var notesForEachPart = [];
-  // pitchChanges = [] - [ time, frame, [ partsArrays ] ] - [ [b],[t],[a][s] ] - [ [b/t/a/s-1],[b/t/a/s-2],[b/t/a/s-3], [b/t/a/s-4] ] - [hz, midi, relAmp]
   // This loads the pitch SVGs for all of the pitches in the notesMidiDict
   // They are visible but not appended to the notation container
-  // There is one set for each section thus i<4 etc...
   for (var i = 0; i < 4; i++) {
     var notesDict = {};
     for (const [key, value] of Object.entries(notesMidiDict)) {
       var tnote = document.createElementNS(SVG_NS, "image");
       tnote.setAttributeNS(svgXlink, 'xlink:href', value);
-      var tbb = pitchContainers[0][1].getBoundingClientRect();
-      var tcontW = tbb.width;
-      tnote.setAttributeNS(null, 'width', tcontW.toString());
-      var tcontH = tbb.height;
-      tnote.setAttributeNS(null, 'height', tcontH.toString());
+      tnote.setAttributeNS(null, 'width', GOFRETWIDTH.toString());
+      tnote.setAttributeNS(null, 'height', notationCanvasH.toString());
       tnote.setAttributeNS(null, 'visibility', 'visible');
       notesDict[key] = tnote;
     }
     notesForEachPart.push(notesDict);
   }
-  // DRAW INITIAL PITCHES FOR EACH TRACKS
-  partsToRun.forEach((playerNum, ptrIX) => {
-    //Load Initial Pitches for Basses
-    if (playerNum < 4) {
-      var timg = notesForEachPart[0][roundByStep(pitchChanges[0][2][0][playerNum][1], 0.5)];
-      pitchContainerDOMs.forEach((pcArr) => { //pcArr=[playerNum,pitchcontainer]
-        let t_playerNum = pcArr[0];
-        let t_pitchCont = pcArr[1];
-        if (playerNum == t_playerNum) {
-          t_pitchCont.appendChild(timg);
-          let tar = [];
-          tar.push(playerNum);
-          tar.push(parseFloat(pitchChanges[0][2][0][playerNum][1]));
-          currentPitches.push(tar);
-        }
-      })
-    }
-    //Load Initial Pitches for Tenors
-    if (playerNum >= 4 && playerNum < 8) {
-      let numInSection = playerNum - 4;
-      var timg = notesForEachPart[1][roundByStep(pitchChanges[0][2][1][numInSection][1], 0.5)];
-      pitchContainerDOMs.forEach((pcArr) => {
-        let t_playerNum = pcArr[0];
-        let t_pitchCont = pcArr[1];
-        if (playerNum == t_playerNum) {
-          t_pitchCont.appendChild(timg);
-          let tar = [];
-          tar.push(playerNum);
-          tar.push(parseFloat(pitchChanges[0][2][1][numInSection][1]));
-          currentPitches.push(tar);
-        }
-      })
-    }
-    //Load Initial Pitches for Altos
-    if (playerNum >= 8 && playerNum < 12) {
-      let numInSection = playerNum - 8;
-      var timg = notesForEachPart[2][roundByStep(pitchChanges[0][2][2][numInSection][1], 0.5)];
-      pitchContainerDOMs.forEach((pcArr) => {
-        let t_playerNum = pcArr[0];
-        let t_pitchCont = pcArr[1];
-        if (playerNum == t_playerNum) {
-          t_pitchCont.appendChild(timg);
-          let tar = [];
-          tar.push(playerNum);
-          tar.push(parseFloat(pitchChanges[0][2][2][numInSection][1]));
-          currentPitches.push(tar);
-        }
-      })
-    }
-    //Load Initial Pitches for Sopranos
-    if (playerNum >= 12 && playerNum < 16) {
-      let numInSection = playerNum - 12;
-      var timg = notesForEachPart[3][roundByStep(pitchChanges[0][2][3][numInSection][1], 0.5)];
-      pitchContainerDOMs.forEach((pcArr) => {
-        let t_playerNum = pcArr[0];
-        let t_pitchCont = pcArr[1];
-        if (playerNum == t_playerNum) {
-          t_pitchCont.appendChild(timg);
-          let tar = [];
-          tar.push(playerNum);
-          tar.push(parseFloat(pitchChanges[0][2][3][numInSection][1]));
-          currentPitches.push(tar);
-        }
-      })
-    }
-
-  });
   return notesForEachPart;
+}
+
+function loadInitialNotation(playerNum) {
+  // pitchChanges = [] - [ time, frame, [ partsArrays ] ] - [ [b],[t],[a][s] ] - [ [b/t/a/s-1],[b/t/a/s-2],[b/t/a/s-3], [b/t/a/s-4] ] - [hz, midi, relAmp]
+  let t_pitchCont;
+
+  pitchContainerDOMs.forEach((pcAr) => {
+    let t_pn = pcAr[0];
+    if (playerNum == t_pn) {
+      t_pitchCont = pcAr[1];
+    }
+  });
+  // BASSES
+  if (playerNum < 4) {
+    var timg = notes[0][roundByStep(pitchChanges[0][2][0][playerNum][1], 0.5)];
+    t_pitchCont.appendChild(timg);
+    let tar = [];
+    tar.push(playerNum);
+    tar.push(parseFloat(pitchChanges[0][2][0][playerNum][1]));
+    currentPitches.push(tar);
+  }
+  // TENORS
+  if (playerNum >= 4 && playerNum < 8) {
+    let numInSection = playerNum - 4;
+    var timg = notes[1][roundByStep(pitchChanges[0][2][1][numInSection][1], 0.5)];
+    t_pitchCont.appendChild(timg);
+    let tar = [];
+    tar.push(playerNum);
+    tar.push(parseFloat(pitchChanges[0][2][1][numInSection][1]));
+    currentPitches.push(tar);
+  }
+  // ALTOS
+  if (playerNum >= 8 && playerNum < 12) {
+    let numInSection = playerNum - 8;
+    var timg = notes[2][roundByStep(pitchChanges[0][2][2][numInSection][1], 0.5)];
+    t_pitchCont.appendChild(timg);
+    let tar = [];
+    tar.push(playerNum);
+    tar.push(parseFloat(pitchChanges[0][2][2][numInSection][1]));
+    currentPitches.push(tar);
+  }
+  // SOPRANOS
+  if (playerNum >= 12 && playerNum < 16) {
+    let numInSection = playerNum - 12;
+    var timg = notes[3][roundByStep(pitchChanges[0][2][3][numInSection][1], 0.5)];
+    t_pitchCont.appendChild(timg);
+    let tar = [];
+    tar.push(playerNum);
+    tar.push(parseFloat(pitchChanges[0][2][3][numInSection][1]));
+    currentPitches.push(tar);
+  }
+
 }
 //</editor-fold> >> END FUNC TO LOAD INITIAL NOTATION FOR ALL PARTS END  //////
 
-
-// FUNCTION: createScene ---------------------------------------------- //
-function createScene() {
-  // Camera ////////////////////////////////
-  camera = new THREE.PerspectiveCamera(75, CANVASW / CANVASH, 1, 3000);
-  camera.position.set(0, 560, -148);
-  camera.rotation.x = rads(-68);
-  // Scene /////////////////////////////////
-  scene = new THREE.Scene();
-  // LIGHTS ////////////////////////////////
-  var sun = new THREE.DirectionalLight(0xFFFFFF, 1.2);
-  sun.position.set(100, 600, 175);
-  scene.add(sun);
-  var sun2 = new THREE.DirectionalLight(0x40A040, 0.6);
-  sun2.position.set(-100, 350, 200);
-  scene.add(sun2);
-  // Renderer //////////////////////////////
-  renderer = new THREE.WebGLRenderer();
-  renderer.setSize(CANVASW, CANVASH);
-  canvas = document.getElementById('tlcanvas1');
-  canvas.appendChild(renderer.domElement);
-  // RUNWAY //////////////////////////////////
-  var runwayMatl =
-    new THREE.MeshLambertMaterial({
-      color: 0x0040C0
-    });
-  var runwayGeom = new THREE.PlaneGeometry(
-    CANVASW,
-    RUNWAYLENGTH,
-  );
-  var runway = new THREE.Mesh(runwayGeom, runwayMatl);
-  runway.position.z = -RUNWAYLENGTH / 2;
-  runway.rotation.x = rads(-90);
-  scene.add(runway);
-  //TRACKS ///////////////////////////////////////////
-  var trgeom = new THREE.CylinderGeometry(trdiameter, trdiameter, RUNWAYLENGTH, 32);
-  var trmatl = new THREE.MeshLambertMaterial({
-    color: 0x708090
-  });
-  var trackXpos = [];
-  for (var i = 0; i < numTracks; i++) {
-    var tTr = new THREE.Mesh(trgeom, trmatl);
-    tTr.rotation.x = rads(-90);
-    tTr.position.z = -(RUNWAYLENGTH / 2);
-    tTr.position.y = -trdiameter / 2;
-    tTr.position.x = -trackXoffset + (spaceBtwnTracks * i);
-    scene.add(tTr);
-    var tGoFretSet = [];
-    var goFretMatl = new THREE.MeshLambertMaterial({
-      color: clr_neonGreen
-    });
-    tGoFret = new THREE.Mesh(goFretGeom, goFretMatl);
-    tGoFret.position.z = GOFRETPOSZ;
-    tGoFret.position.y = GOFRETHEIGHT;
-    var tTrackXpos = -trackXoffset + (spaceBtwnTracks * i);
-    tGoFret.position.x = tTrackXpos;
-    trackXpos.push(tTrackXpos);
-    scene.add(tGoFret);
-    tGoFretSet.push(tGoFret);
-    tGoFretSet.push(goFretMatl);
-    goFrets.push(tGoFretSet);
-  }
-  // SVG NOTATION ///////////////////////////////////////////////
-  //// SVG CONTAINERS ////
-  for (var i = 0; i < numTracks; i++) {
-    var tcont = document.getElementById("notationOuterDiv");
-    var tsvgCanvas = document.createElementNS(SVG_NS, "svg");
-    tsvgCanvas.setAttributeNS(null, "width", GOFRETWIDTH.toString());
-    tsvgCanvas.setAttributeNS(null, "height", notationCanvasH.toString());
-    tsvgCanvas.setAttributeNS(null, "id", "notationSVGcont" + i.toString());
-    var trMargin = 34;
-    var ttrgap = 20.3;
-    var txloc = (ttrgap * i) + trMargin;
-    tsvgCanvas.setAttributeNS(null, "transform", "translate(" + txloc.toString() + ", 0)");
-    tsvgCanvas.setAttributeNS(null, "class", "notationCanvas");
-    tsvgCanvas.style.backgroundColor = "white";
-    tcont.appendChild(tsvgCanvas);
-    pitchContainers.push(tsvgCanvas);
-  }
-  for (var i = 0; i < pitchContainers.length; i++) {
-    pitchContainerDOMs.push(document.getElementById(pitchContainers[i].id));
-  }
-  // CURVE FOLLOW RECTS /////////////////////////////////////////////
-  for (var j = 0; j < maxNumOfPlayers; j++) {
-    var tcresFollowRect = document.createElementNS(SVG_NS, "rect");
-    tcresFollowRect.setAttributeNS(null, "x", "0");
-    tcresFollowRect.setAttributeNS(null, "y", "0");
-    tcresFollowRect.setAttributeNS(null, "width", GOFRETWIDTH.toString());
-    tcresFollowRect.setAttributeNS(null, "height", "0");
-    tcresFollowRect.setAttributeNS(null, "fill", "rgba(255, 21, 160, 0.5)");
-    tcresFollowRect.setAttributeNS(null, "id", "cresFollowRect" + j.toString());
-    tcresFollowRect.setAttributeNS(null, "transform", "translate( 0, -3)");
-    cresCrvFollowersRect.push(tcresFollowRect);
-  }
-  //// CURVES ////
-  for (var j = 0; j < maxNumOfPlayers; j++) {
-    var tcresSvgCrv = document.createElementNS(SVG_NS, "path");
-    var tpathstr = "";
-    for (var i = 0; i < cresCrvCoords.length; i++) {
-      if (i == 0) {
-        tpathstr = tpathstr + "M" + cresCrvCoords[i].x.toString() + " " + cresCrvCoords[i].y.toString() + " ";
-      } else {
-        tpathstr = tpathstr + "L" + cresCrvCoords[i].x.toString() + " " + cresCrvCoords[i].y.toString() + " ";
-      }
-    }
-    tcresSvgCrv.setAttributeNS(null, "d", tpathstr);
-    tcresSvgCrv.setAttributeNS(null, "stroke", "rgba(255, 21, 160, 0.5)");
-    tcresSvgCrv.setAttributeNS(null, "stroke-width", "4");
-    tcresSvgCrv.setAttributeNS(null, "fill", "none");
-    tcresSvgCrv.setAttributeNS(null, "id", "cresCrv" + j.toString());
-    tcresSvgCrv.setAttributeNS(null, "transform", "translate( 0, -3)");
-    cresSvgCrvs.push(tcresSvgCrv);
-  }
-  // CURVE FOLLOWERS
-  for (var j = 0; j < maxNumOfPlayers; j++) {
-    var tcresSvgCirc = document.createElementNS(SVG_NS, "circle");
-    tcresSvgCirc.setAttributeNS(null, "cx", cresCrvCoords[0].x.toString());
-    tcresSvgCirc.setAttributeNS(null, "cy", cresCrvCoords[0].y.toString());
-    tcresSvgCirc.setAttributeNS(null, "r", "10");
-    tcresSvgCirc.setAttributeNS(null, "stroke", "none");
-    tcresSvgCirc.setAttributeNS(null, "fill", "rgba(255, 21, 160, 0.5)");
-    tcresSvgCirc.setAttributeNS(null, "id", "cresCrvCirc" + j.toString());
-    tcresSvgCirc.setAttributeNS(null, "transform", "translate( 0, -3)");
-    cresCrvFollowers.push(tcresSvgCirc);
-    //Make FOLLOWERS
-    var tcrvFset = [];
-    tcrvFset.push(true);
-    tcrvFset.push(0.0);
-    crvFollowData.push(tcrvFset);
-  }
-
-  // RENDER /////////////////////////////////////////////
-  renderer.render(scene, camera);
-}
-
-
-// var ranges = [[40, 60],[48, 67],[53, 74],[60, 81]];
-// function loadInitialNotation() {
-//   var notesForEachPart = [];
-//   // pitchChanges = [] - [ time, frame, [ partsArrays ] ] - [ [b],[t],[a][s] ] - [ [b/t/a/s-1],[b/t/a/s-2],[b/t/a/s-3], [b/t/a/s-4] ] - [hz, midi, relAmp]
-//   for (var i = 0; i < 4; i++) {
-//     var notesDict = {};
-//     for (const [key, value] of Object.entries(notesMidiDict)) {
-//       var tnote = document.createElementNS(SVG_NS, "image");
-//       tnote.setAttributeNS(svgXlink, 'xlink:href', value);
-//       var tbb = pitchContainers[0].getBoundingClientRect();
-//       var tcontW = tbb.width;
-//       tnote.setAttributeNS(null, 'width', tcontW.toString());
-//       var tcontH = tbb.height;
-//       tnote.setAttributeNS(null, 'height', tcontH.toString());
-//       tnote.setAttributeNS(null, 'visibility', 'visible');
-//       notesDict[key] = tnote;
-//     }
-//     notesForEachPart.push(notesDict);
-//   }
-//   // DRAW INITIAL PITCHES FOR EACH TRACKS
-//   for (var i = 0; i < 4; i++) {
-//     var timg = notesForEachPart[0][roundByStep(pitchChanges[0][2][0][i][1], 0.5)];
-//     pitchContainerDOMs[i].appendChild(timg);
-//     currentPitches.push(parseFloat(pitchChanges[0][2][0][i][1]));
-//   }
-//   for (var i = 4; i < 8; i++) {
-//     var j = i - 4;
-//     var timg = notesForEachPart[1][roundByStep(pitchChanges[0][2][1][j][1], 0.5)];
-//     pitchContainerDOMs[i].appendChild(timg);
-//     currentPitches.push(parseFloat(pitchChanges[0][2][1][j][1]));
-//   }
-//   for (var i = 8; i < 12; i++) {
-//     var j = i - 8;
-//     var timg = notesForEachPart[2][roundByStep(pitchChanges[0][2][2][j][1], 0.5)];
-//     pitchContainerDOMs[i].appendChild(timg);
-//     currentPitches.push(parseFloat(pitchChanges[0][2][2][j][1]));
-//   }
-//   for (var i = 12; i < 16; i++) {
-//     var j = i - 12;
-//     var timg = notesForEachPart[3][roundByStep(pitchChanges[0][2][3][j][1], 0.5)];
-//     pitchContainerDOMs[i].appendChild(timg);
-//     currentPitches.push(parseFloat(pitchChanges[0][2][3][j][1]));
-//   }
-//   return notesForEachPart;
-// }
-
-
-
-
-var crvFollowData = [];
-// FUNCTION: animationEngine -------------------------------------------- //
+//<editor-fold> << ANIMATION ENGINE >> ------------------------------------- //
+//<editor-fold>  < ANIMATION ENGINE - ENGINE >           //
 function animationEngine(timestamp) {
-  delta += timestamp - lastFrameTimeMs;
-  lastFrameTimeMs = timestamp;
+  var t_now = new Date(TS.now());
+  t_lt = t_now.getTime() - timeAdjustment;
+  // calcClock(t_lt);
+  delta += t_lt - lastFrameTimeMs;
+  lastFrameTimeMs = t_lt;
   while (delta >= MSPERFRAME) {
-    update(MSPERFRAME);
+    update(MSPERFRAME, t_lt);
     draw();
     delta -= MSPERFRAME;
   }
-  requestAnimationFrame(animationEngine);
+  if (animationGo) requestAnimationFrame(animationEngine);
 }
-
+//</editor-fold> END ANIMATION ENGINE - ENGINE END
+//<editor-fold>     < ANIMATION ENGINE - UPDATE >           //
+function update(aMSPERFRAME, currTimeMS) {
+  framect++;
+  pieceClock += aMSPERFRAME;
+  pieceClock = pieceClock - clockadj;
+  // ANIMATE ---------------------- >
+  notationObjects.forEach(function(objToAnimate, ix) {
+    objToAnimate.animate(partsToRunEvents[ix]);
+  });
+}
+//</editor-fold> END ANIMATION ENGINE - UPDATE END
+//<editor-fold>     < ANIMATION ENGINE - DRAW >             //
+function draw() {
+  // RENDER ----------------------- >
+  notationObjects.forEach(function(objToRender, ix) {
+    objToRender.renderer.render(objToRender.scene, objToRender.camera);
+  });
+}
+//</editor-fold> END ANIMATION ENGINE - DRAW END    //
+//</editor-fold>  > END ANIMATION ENGINE  /////////////////////////////////////
 function pieceClockAdjust(time) {
   var tNewFrame = (time + leadTime) * FRAMERATE;
   // var tNewFrame = time * FRAMERATE;
@@ -1242,195 +1114,192 @@ function draw() {
 }
 // FUNCTION: mkEventSection ------------------------------------------- //
 //FLATTEN EVENTS INTO ONE ARRAY PER PERFORMER
-function mkEventMatrixSec1() {
+function mkEventMatrixSec1_singlePart(partNum) {
   var tEventMatrix = [];
   var tempoFretIx = 0;
-  for (var i = 0; i < timeCodeByPart.length; i++) {
-    var tTempoFretSet = [];
-    for (var j = 0; j < timeCodeByPart[i].length; j++) {
-      for (var k = 0; k < timeCodeByPart[i][j].length; k++) {
-        var tTimeGopxGoFrm = [];
-        var tTime = timeCodeByPart[i][j][k];
-        tTime = tTime + leadTime;
-        var tNumPxTilGo = tTime * PXPERSEC;
-        var tiGoPx = GOFRETPOSZ - tNumPxTilGo;
-        var tGoFrm = Math.round(tNumPxTilGo / PXPERFRAME);
-        // var tGoFrm = Math.round(tTime * FRAMERATE);
-        var tempMatl = new THREE.MeshLambertMaterial({
-          color: fretClr[j % 2]
-        });
-        var tempTempoFret = new THREE.Mesh(tempoFretGeom, tempMatl);
-        tempTempoFret.position.z = tiGoPx;
-        tempTempoFret.position.y = GOFRETHEIGHT;
-        tempTempoFret.position.x = -trackXoffset + (spaceBtwnTracks * i);
-        tempTempoFret.name = "tempofret" + tempoFretIx;
-        tempoFretIx++;
-        var newTempoFret = [true, tempTempoFret, tGoFrm, tTime, tNumPxTilGo, tiGoPx]; //[gate so tempofret is added to scene only once, mesh, goFrame]
-        tTempoFretSet.push(newTempoFret);
-      }
+  var tTempoFretSet = [];
+  for (var j = 0; j < timeCodeByPart[partNum].length; j++) {
+    for (var k = 0; k < timeCodeByPart[partNum][j].length; k++) {
+      var tTimeGopxGoFrm = [];
+      var tTime = timeCodeByPart[partNum][j][k];
+      tTime = tTime + leadTime;
+      var tNumPxTilGo = tTime * PXPERSEC;
+      var tiGoPx = GOFRETPOSZ - tNumPxTilGo;
+      var tGoFrm = Math.round(tNumPxTilGo / PXPERFRAME);
+      // var tGoFrm = Math.round(tTime * FRAMERATE);
+      var tempMatl = new THREE.MeshLambertMaterial({
+        color: fretClr[j % 2]
+      });
+      var tempTempoFret = new THREE.Mesh(tempoFretGeom, tempMatl);
+      tempTempoFret.position.z = tiGoPx;
+      tempTempoFret.position.y = GOFRETHEIGHT;
+      tempTempoFret.position.x = 0;
+      tempTempoFret.name = "tempofret" + tempoFretIx;
+      tempoFretIx++;
+      var newTempoFret = [true, tempTempoFret, tGoFrm, tTime, tNumPxTilGo, tiGoPx]; //[gate so tempofret is added to scene only once, mesh, goFrame]
+      tTempoFretSet.push(newTempoFret);
     }
-    tEventMatrix.push(tTempoFretSet);
   }
-  return tEventMatrix;
+  return tTempoFretSet;
 }
 // FUNCTION: mkEventSection ------------------------------------------- //
 //FLATTEN EVENTS INTO ONE ARRAY PER PERFORMER
-function mkEventMatrixSec2() {
-  var tEventMatrix = [];
+function mkEventMatrixSec2_singlePart(partNum) {
   var teventMeshIx = 0;
-  for (var i = 0; i < sec2TimeCodeByPart.length; i++) {
-    var tcresEventSet = [];
-    for (var j = 0; j < sec2TimeCodeByPart[i].length; j++) {
+  var tcresEventSet = [];
+  for (var j = 0; j < sec2TimeCodeByPart[partNum].length; j++) {
+    var tTimeGopxGoFrm = [];
+    var tTime = sec2TimeCodeByPart[partNum][j];
+    tTime = tTime + leadTime;
+    var tNumPxTilGo = tTime * PXPERSEC;
+    var tiGoPx = GOFRETPOSZ - tNumPxTilGo;
+    var tGoFrm = Math.round(tNumPxTilGo / PXPERFRAME);
+    var tempMatl = new THREE.MeshLambertMaterial({
+      color: fretClr[j % 2]
+    });
+    var tcresEventLength = cresDurs[partNum] * PXPERSEC;
+    var teventdurframes = Math.round(cresDurs[partNum] * FRAMERATE);
+    var tOffFrm = tGoFrm + teventdurframes;
+    var tcresEventGeom = new THREE.CubeGeometry(50, GOFRETHEIGHT + 5, tcresEventLength);
+    var tcresEventMesh = new THREE.Mesh(tcresEventGeom, tempMatl);
+    tcresEventMesh.position.z = tiGoPx - (tcresEventLength / 2.0);
+    tcresEventMesh.position.y = GOFRETHEIGHT;
+    tcresEventMesh.position.x = 0;
+    tcresEventMesh.name = "cresEvent" + teventMeshIx;
+    teventMeshIx++;
+    var tnewCresEvent = [true, tcresEventMesh, tGoFrm, tTime, tNumPxTilGo, tiGoPx, tOffFrm, tcresEventLength]; //[gate so tempofret is added to scene only once, mesh, goFrame]
+    tcresEventSet.push(tnewCresEvent);
+  }
+  return tcresEventSet;
+}
+// FUNCTION: mkEventMatrixSec3 ------------------------------------------- //
+function mkEventMatrixSec3Hocket_singlePart(partNum) {
+  var tempoFretIx = 0;
+  var tTempoFretSet = [];
+  let sec3HocketTimeCodeIXtoRun;
+  sec3HocketPlayers.forEach((hp, ix) => {
+    if (hp = partNum) {
+      sec3HocketTimeCodeIXtoRun = ix;
+    }
+  });
+
+  for (var j = 0; j < sec3HocketTimeCode[sec3HocketTimeCodeIXtoRun].length; j++) {
+    for (var k = 0; k < sec3HocketTimeCode[sec3HocketTimeCodeIXtoRun][j].length; k++) {
       var tTimeGopxGoFrm = [];
-      var tTime = sec2TimeCodeByPart[i][j];
+      var tTime = sec3HocketTimeCode[sec3HocketTimeCodeIXtoRun][j][k];
       tTime = tTime + leadTime;
       var tNumPxTilGo = tTime * PXPERSEC;
       var tiGoPx = GOFRETPOSZ - tNumPxTilGo;
       var tGoFrm = Math.round(tNumPxTilGo / PXPERFRAME);
       var tempMatl = new THREE.MeshLambertMaterial({
         color: fretClr[j % 2]
-      });
-      var tcresEventLength = cresDurs[i] * PXPERSEC;
-      var teventdurframes = Math.round(cresDurs[i] * FRAMERATE);
-      var tOffFrm = tGoFrm + teventdurframes;
-      var tcresEventGeom = new THREE.CubeGeometry(50, GOFRETHEIGHT + 5, tcresEventLength);
-      var tcresEventMesh = new THREE.Mesh(tcresEventGeom, tempMatl);
-      tcresEventMesh.position.z = tiGoPx - (tcresEventLength / 2.0);
-      tcresEventMesh.position.y = GOFRETHEIGHT;
-      tcresEventMesh.position.x = -trackXoffset + (spaceBtwnTracks * i);
-      tcresEventMesh.name = "cresEvent" + teventMeshIx;
-      teventMeshIx++;
-      var tnewCresEvent = [true, tcresEventMesh, tGoFrm, tTime, tNumPxTilGo, tiGoPx, tOffFrm, tcresEventLength]; //[gate so tempofret is added to scene only once, mesh, goFrame]
-      tcresEventSet.push(tnewCresEvent);
-    }
-    tEventMatrix.push(tcresEventSet);
-  }
-  return tEventMatrix;
-}
-// FUNCTION: mkEventMatrixSec3 ------------------------------------------- //
-function mkEventMatrixSec3Hocket() {
-  var tEventMatrix = [];
-  var tempoFretIx = 0;
-  for (var i = 0; i < sec3HocketTimeCode.length; i++) {
-    var tTempoFretSet = [];
-    for (var j = 0; j < sec3HocketTimeCode[i].length; j++) {
-      for (var k = 0; k < sec3HocketTimeCode[i][j].length; k++) {
-        var tTimeGopxGoFrm = [];
-        var tTime = sec3HocketTimeCode[i][j][k];
-        tTime = tTime + leadTime;
-        var tNumPxTilGo = tTime * PXPERSEC;
-        var tiGoPx = GOFRETPOSZ - tNumPxTilGo;
-        var tGoFrm = Math.round(tNumPxTilGo / PXPERFRAME);
-        var tempMatl = new THREE.MeshLambertMaterial({
-          color: fretClr[j % 2]
-        });
-        var tempSec3HocketFret = new THREE.Mesh(tempoFretGeom, tempMatl);
-        tempSec3HocketFret.position.z = tiGoPx;
-        tempSec3HocketFret.position.y = GOFRETHEIGHT;
-        tempSec3HocketFret.position.x = -trackXoffset + (spaceBtwnTracks * sec3HocketPlayers[i]);
-        tempSec3HocketFret.name = "tempofret" + tempoFretIx;
-        tempoFretIx++;
-        var tnewTempoFret = [true, tempSec3HocketFret, tGoFrm, tTime, tNumPxTilGo, tiGoPx]; //[gate so tempofret is added to scene only once, mesh, goFrame]
-        tTempoFretSet.push(tnewTempoFret);
-      }
-    }
-    tEventMatrix.push(tTempoFretSet);
-  }
-  return tEventMatrix;
-}
-// FUNCTION: mkEventSection ------------------------------------------- //
-function mkEventMatrixSec3Cres() {
-  var tEventMatrix = [];
-  var teventMeshIx = 0;
-  for (var i = 0; i < sec3CresTimeCodeByPart.length; i++) {
-    var tcresEventSet = [];
-    for (var j = 0; j < sec3CresTimeCodeByPart[i].length; j++) {
-      var tTimeGopxGoFrm = [];
-      var tTime = sec3CresTimeCodeByPart[i][j];
-      tTime = tTime + leadTime;
-      var tNumPxTilGo = tTime * PXPERSEC;
-      var tiGoPx = GOFRETPOSZ - tNumPxTilGo;
-      var tGoFrm = Math.round(tNumPxTilGo / PXPERFRAME);
-      var tempMatl = new THREE.MeshLambertMaterial({
-        color: fretClr[j % 2]
-      });
-      var tcresEventLength = cresDurs[sec3Cres[i]] * PXPERSEC;
-      var teventdurframes = Math.round(cresDurs[sec3Cres[i]] * FRAMERATE);
-      var tOffFrm = tGoFrm + teventdurframes;
-      var tcresEventGeom = new THREE.CubeGeometry(50, GOFRETHEIGHT + 5, tcresEventLength);
-      var tcresEventMesh = new THREE.Mesh(tcresEventGeom, tempMatl);
-      tcresEventMesh.position.z = tiGoPx - (tcresEventLength / 2.0);
-      tcresEventMesh.position.y = GOFRETHEIGHT;
-      tcresEventMesh.position.x = -trackXoffset + (spaceBtwnTracks * sec3Cres[i]);
-      tcresEventMesh.name = "sec3CresEvent" + teventMeshIx;
-      teventMeshIx++;
-      var tnewCresEvent = [true, tcresEventMesh, tGoFrm, tTime, tNumPxTilGo, tiGoPx, tOffFrm, tcresEventLength]; //[gate so tempofret is added to scene only once, mesh, goFrame]
-      tcresEventSet.push(tnewCresEvent);
-    }
-    tEventMatrix.push(tcresEventSet);
-  }
-  return tEventMatrix;
-}
-// FUNCTION: mkEventMatrixSec3 ------------------------------------------- //
-function mkEventMatrixSec3Accel() {
-  var tEventMatrix = [];
-  var tempoFretIx = 0;
-  for (var i = 0; i < sec3AccelTimeCode.length; i++) {
-    var tTempoFretSet = [];
-    for (var j = 0; j < sec3AccelTimeCode[i].length; j++) {
-      for (var k = 0; k < sec3AccelTimeCode[i][j].length; k++) {
-        var tTimeGopxGoFrm = [];
-        var tTime = sec3AccelTimeCode[i][j][k];
-        tTime = tTime + leadTime;
-        var tNumPxTilGo = tTime * PXPERSEC;
-        var tiGoPx = GOFRETPOSZ - tNumPxTilGo;
-        var tGoFrm = Math.round(tNumPxTilGo / PXPERFRAME);
-        var tempMatl = new THREE.MeshLambertMaterial({
-          color: fretClr[j % 2]
-        });
-        var tempSec3HocketFret = new THREE.Mesh(tempoFretGeom, tempMatl);
-        tempSec3HocketFret.position.z = tiGoPx;
-        tempSec3HocketFret.position.y = GOFRETHEIGHT;
-        tempSec3HocketFret.position.x = -trackXoffset + (spaceBtwnTracks * sec3Accel[i]);
-        tempSec3HocketFret.name = "sec3AccelFret" + tempoFretIx;
-        tempoFretIx++;
-        var tnewTempoFret = [true, tempSec3HocketFret, tGoFrm, tTime, tNumPxTilGo, tiGoPx]; //[gate so tempofret is added to scene only once, mesh, goFrame]
-        tTempoFretSet.push(tnewTempoFret);
-      }
-    }
-    tEventMatrix.push(tTempoFretSet);
-  }
-  return tEventMatrix;
-}
-// FUNCTION: mkEventMatrixSec4 ------------------------------------------- //
-function mkEventMatrixSec4() {
-  var tEventMatrix = [];
-  var tempoFretIx = 0;
-  for (var i = 0; i < sec4TimeCode.length; i++) {
-    var tTempoFretSet = [];
-    for (var j = 0; j < sec4TimeCode[i].length; j++) {
-      var tTimeGopxGoFrm = [];
-      var tTime = sec4TimeCode[i][j];
-      tTime = tTime + leadTime;
-      var tNumPxTilGo = tTime * PXPERSEC;
-      var tiGoPx = GOFRETPOSZ - tNumPxTilGo;
-      var tGoFrm = Math.round(tNumPxTilGo / PXPERFRAME);
-      var tempMatl = new THREE.MeshLambertMaterial({
-        color: fretClr[0]
       });
       var tempSec3HocketFret = new THREE.Mesh(tempoFretGeom, tempMatl);
       tempSec3HocketFret.position.z = tiGoPx;
       tempSec3HocketFret.position.y = GOFRETHEIGHT;
-      tempSec3HocketFret.position.x = -trackXoffset + (spaceBtwnTracks * i);
-      tempSec3HocketFret.name = "sec4Fret" + tempoFretIx;
+      tempSec3HocketFret.position.x = 0;
+      tempSec3HocketFret.name = "tempofret" + tempoFretIx;
       tempoFretIx++;
       var tnewTempoFret = [true, tempSec3HocketFret, tGoFrm, tTime, tNumPxTilGo, tiGoPx]; //[gate so tempofret is added to scene only once, mesh, goFrame]
       tTempoFretSet.push(tnewTempoFret);
-
     }
-    tEventMatrix.push(tTempoFretSet);
   }
-  return tEventMatrix;
+  return tTempoFretSet;
+}
+// FUNCTION: mkEventSection ------------------------------------------- //
+function mkEventMatrixSec3Cres_singlePart(partNum) {
+  var teventMeshIx = 0;
+  var tcresEventSet = [];
+  let sec3CresTimeCodeByPartIXtoRun;
+  sec3Cres.forEach((pn, ix) => {
+    if (pn = partNum) {
+      sec3CresTimeCodeByPartIXtoRun = ix;
+    }
+  });
+  for (var j = 0; j < sec3CresTimeCodeByPart[sec3CresTimeCodeByPartIXtoRun].length; j++) {
+    var tTimeGopxGoFrm = [];
+    var tTime = sec3CresTimeCodeByPart[sec3CresTimeCodeByPartIXtoRun][j];
+    tTime = tTime + leadTime;
+    var tNumPxTilGo = tTime * PXPERSEC;
+    var tiGoPx = GOFRETPOSZ - tNumPxTilGo;
+    var tGoFrm = Math.round(tNumPxTilGo / PXPERFRAME);
+    var tempMatl = new THREE.MeshLambertMaterial({
+      color: fretClr[j % 2]
+    });
+    var tcresEventLength = cresDurs[partNum] * PXPERSEC;
+    var teventdurframes = Math.round(cresDurs[partNum] * FRAMERATE);
+    var tOffFrm = tGoFrm + teventdurframes;
+    var tcresEventGeom = new THREE.CubeGeometry(50, GOFRETHEIGHT + 5, tcresEventLength);
+    var tcresEventMesh = new THREE.Mesh(tcresEventGeom, tempMatl);
+    tcresEventMesh.position.z = tiGoPx - (tcresEventLength / 2.0);
+    tcresEventMesh.position.y = GOFRETHEIGHT;
+    tcresEventMesh.position.x = 0;
+    tcresEventMesh.name = "sec3CresEvent" + teventMeshIx;
+    teventMeshIx++;
+    var tnewCresEvent = [true, tcresEventMesh, tGoFrm, tTime, tNumPxTilGo, tiGoPx, tOffFrm, tcresEventLength]; //[gate so tempofret is added to scene only once, mesh, goFrame]
+    tcresEventSet.push(tnewCresEvent);
+  }
+  return tcresEventSet;
+}
+// FUNCTION: mkEventMatrixSec3 ------------------------------------------- //
+function mkEventMatrixSec3Accel_singlePart(partNum) {
+  var tempoFretIx = 0;
+  var tTempoFretSet = [];
+  let sec3AccelTimeCodeIXtoRun;
+  sec3Accel.forEach((pn, ix) => {
+    if (pn = partNum) {
+      sec3AccelTimeCodeIXtoRun = ix;
+    }
+  });
+  for (var j = 0; j < sec3AccelTimeCode[sec3AccelTimeCodeIXtoRun].length; j++) {
+    for (var k = 0; k < sec3AccelTimeCode[sec3AccelTimeCodeIXtoRun][j].length; k++) {
+      var tTimeGopxGoFrm = [];
+      var tTime = sec3AccelTimeCode[sec3AccelTimeCodeIXtoRun][j][k];
+      tTime = tTime + leadTime;
+      var tNumPxTilGo = tTime * PXPERSEC;
+      var tiGoPx = GOFRETPOSZ - tNumPxTilGo;
+      var tGoFrm = Math.round(tNumPxTilGo / PXPERFRAME);
+      var tempMatl = new THREE.MeshLambertMaterial({
+        color: fretClr[j % 2]
+      });
+      var tempSec3HocketFret = new THREE.Mesh(tempoFretGeom, tempMatl);
+      tempSec3HocketFret.position.z = tiGoPx;
+      tempSec3HocketFret.position.y = GOFRETHEIGHT;
+      tempSec3HocketFret.position.x = 0;
+      tempSec3HocketFret.name = "sec3AccelFret" + tempoFretIx;
+      tempoFretIx++;
+      var tnewTempoFret = [true, tempSec3HocketFret, tGoFrm, tTime, tNumPxTilGo, tiGoPx]; //[gate so tempofret is added to scene only once, mesh, goFrame]
+      tTempoFretSet.push(tnewTempoFret);
+    }
+  }
+
+  return tTempoFretSet;
+}
+// FUNCTION: mkEventMatrixSec4 ------------------------------------------- //
+function mkEventMatrixSec4_singlePart(partNum) {
+  var tempoFretIx = 0;
+  var tTempoFretSet = [];
+  for (var j = 0; j < sec4TimeCode[partNum].length; j++) {
+    var tTimeGopxGoFrm = [];
+    var tTime = sec4TimeCode[partNum][j];
+    tTime = tTime + leadTime;
+    var tNumPxTilGo = tTime * PXPERSEC;
+    var tiGoPx = GOFRETPOSZ - tNumPxTilGo;
+    var tGoFrm = Math.round(tNumPxTilGo / PXPERFRAME);
+    var tempMatl = new THREE.MeshLambertMaterial({
+      color: fretClr[0]
+    });
+    var tempSec3HocketFret = new THREE.Mesh(tempoFretGeom, tempMatl);
+    tempSec3HocketFret.position.z = tiGoPx;
+    tempSec3HocketFret.position.y = GOFRETHEIGHT;
+    tempSec3HocketFret.position.x = 0;
+    tempSec3HocketFret.name = "sec4Fret" + tempoFretIx;
+    tempoFretIx++;
+    var tnewTempoFret = [true, tempSec3HocketFret, tGoFrm, tTime, tNumPxTilGo, tiGoPx]; //[gate so tempofret is added to scene only once, mesh, goFrame]
+    tTempoFretSet.push(tnewTempoFret);
+
+  }
+  return tTempoFretSet;
 }
 // MORE VARIABLES ------------------------------------------------------ //
 var cresGainNodes = [];
