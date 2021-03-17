@@ -1,43 +1,32 @@
 //<editor-fold> << GLOBAL VARIABLES >> ------------------------------------- //
-// TIMING & ANIMATION ENGINE /////////////////////////////
-var FRAMERATE = 60.0;
-var MSPERFRAME = 1000.0 / FRAMERATE;
-var SECPERFRAME = 1.0 / FRAMERATE;
-var PXPERSEC = 150.0;
-var PXPERMS = PXPERSEC / 1000.0;
-var PXPERFRAME = PXPERSEC / FRAMERATE;
+//<editor-fold>  < GLOBAL VARS - TIMING >                 //
+const FRAMERATE = 60.0;
+const MSPERFRAME = 1000.0 / FRAMERATE;
+const PXPERSEC = 150.0;
+const PXPERFRAME = PXPERSEC / FRAMERATE;
 var framect = 0;
 var delta = 0.0;
 var lastFrameTimeMs = 0.0;
 var pieceClock = 0.0;
 var clockadj = 0.0;
-// COLORS /////////////////////////////////////////////////
+//</editor-fold> END GLOBAL VARS - TIMING END
+//<editor-fold>  < GLOBAL VARS - COLORS >                 //
 var clr_neonMagenta = new THREE.Color("rgb(255, 21, 160)");
-var clr_neonBlue = new THREE.Color("rgb(6, 107, 225)");
-var clr_forest = new THREE.Color("rgb(11, 102, 35)");
-var clr_jade = new THREE.Color("rgb(0, 168, 107)");
 var clr_neonGreen = new THREE.Color("rgb(57, 255, 20)");
 var clr_limegreen = new THREE.Color("rgb(153, 255, 0)");
-var clr_yellow = new THREE.Color("rgb(255, 255, 0)");
-var clr_orange = new THREE.Color("rgb(255, 128, 0)");
-var clr_red = new THREE.Color("rgb(255, 0, 0)");
-var clr_purple = new THREE.Color("rgb(255, 0, 255)");
-var clr_neonRed = new THREE.Color("rgb(255, 37, 2)");
 var clr_safetyOrange = new THREE.Color("rgb(255, 103, 0)");
-var clr_green = new THREE.Color("rgb(0, 255, 0)");
 var fretClr = [clr_limegreen, clr_neonMagenta];
-// SCENE /////////////////////////////////////////////////
+//</editor-fold> END GLOBAL VARS - COLORS END
+//<editor-fold>  < GLOBAL VARS - SCENE >                 //
 const CANVASW = 113;
 const CANVASH = 450;
 const RUNWAYLENGTH = 1070;
-var camera, scene, renderer, canvas;
+// var camera, scene, renderer, canvas;
 const GOFRETLENGTH = 21;
 const GOFRETHEIGHT = 4;
 const GOFRETPOSZ = -GOFRETLENGTH / 2;
 const GOFRETWIDTH = 100;
 const CRV_H = 150;
-const CRV_W = CANVASW;
-var timeCodeByPart_goPx_goFrm = [];
 var goFretGeom = new THREE.CubeGeometry(GOFRETWIDTH, GOFRETHEIGHT, GOFRETLENGTH);
 var goFretMatl = new THREE.MeshLambertMaterial({
   color: clr_neonGreen
@@ -46,14 +35,13 @@ var goFretAdd = 3;
 var goFretBigGeom = new THREE.CubeGeometry(GOFRETWIDTH + goFretAdd, GOFRETHEIGHT + goFretAdd, GOFRETLENGTH + goFretAdd);
 var tempoFretGeom = new THREE.CubeGeometry(GOFRETWIDTH, GOFRETHEIGHT, GOFRETLENGTH);
 var numTracks = 16;
-var trackXoffset = 634;
 var trdiameter = 10;
-var spaceBtwnTracks = (trackXoffset * 2) / (numTracks - 1);
 var goFretBlink = [];
 for (var i = 0; i < numTracks; i++) {
   goFretBlink.push(0);
 }
 var goFrets = []; //[goFret, goFretMatl]
+//</editor-fold> END GLOBAL VARS - SCENE END
 // NOTATION SVGS ////////////////////////////////////////
 var svgXlink = 'http://www.w3.org/1999/xlink';
 var pitchContainers = [];
@@ -64,9 +52,7 @@ var notationCanvasH = CRV_H;
 var cresCrvCoords = plot(function(x) {
   return Math.pow(x, 3);
 }, [0, 1, 0, 1], GOFRETWIDTH, notationCanvasH);
-var cresSvgCrvs = [];
-var cresCrvFollowers = [];
-var cresCrvFollowersRect = [];
+let timeCodeByPart, sec2TimeCodeByPart, sec3HocketTimeCode, sec3CresTimeCodeByPart, sec3AccelTimeCode, sec4TimeCode;
 let eventMatrix, sec2eventMatrix, sec3eventMatrixHocket, sec3eventMatrixCres, sec3eventMatrixAccel, sec4eventMatrix;
 let partsToRun_eventMatrix = [];
 let partsToRun_sec2eventMatrix = [];
@@ -74,26 +60,26 @@ let partsToRun_sec3eventMatrixHocket = [];
 let partsToRun_sec3eventMatrixCres = [];
 let partsToRun_sec3eventMatrixAccel = [];
 let partsToRun_sec4eventMatrix = [];
-var sec2CresStart;
-var mainVoiceAmp = 0.25;
 // MISC ////////////////////////////////////////
 const SVG_NS = "http://www.w3.org/2000/svg";
-var played = false;
 var currentPitches = [];
 var maxNumOfPlayers = 16;
 var leadTime = 8.0;
 let cresDurs, sec3HocketPlayers, sec3Cres, sec3Accel, pitchChanges;
 let sec2start, endSec2Time, sec3StartTime, sec3EndTime;
 var urlArgsDict;
-let partsToRun = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
-// let partsToRun = [3, 13];
+let partsToRun = [];
+let notationObjects = [];
 var crvFollowData = [];
+let makeControlPanel = false;
+let scoreCtrlPanel;
 //<editor-fold>  < GLOBAL VARS - GATES >                 //
-var animationGo = true;
-var activateStartBtn = true;
-var activatePauseBtn = false;
-var activateStopBtn = false;
-var startPieceGate = true;
+var piece_hasStarted = false;
+let piece_canStart = true;
+let startBtn_isActive = true;
+let stopBtn_isActive = false;
+let pauseBtn_isActive = false;
+let animation_isGo = true;
 //</editor-fold> END GLOBAL VARS - GATES END
 //<editor-fold>  < GLOBAL VARS - TIMESYNC ENGINE >       //
 var tsServer;
@@ -215,141 +201,162 @@ var notesMidiDict = {
 //</editor-fold> >> END GLOBAL VARIABLES END  /////////////////////////////////
 
 //<editor-fold> << START UP >> --------------------------------------------- //
-function setup() {
-
-  partsToRun.forEach((partToRun, ptrix) => {
-    var newNO = mkNotationObject(partToRun, CANVASW, CANVASH, RUNWAYLENGTH, [ptrix, partsToRun.length]);
-    // notationObjects.push(newNO);
-  });
-  loadScoreData();
-  // notes = loadInitialNotation(); //run from loadScoreData
-
-  // createScene();
-  // loadScoreData();
-  //<editor-fold>  < LOAD SCORE DATA FUNCTION >            //
-  async function loadScoreData() {
-    retrivedFileDataObj = await retriveFile('savedScoreData/pitchChanges.txt');
-    retrivedFileData = retrivedFileDataObj.fileData;
-    retrivedFileData_parsed = JSON.parse(retrivedFileData);
-    pitchChanges = retrivedFileData_parsed;
-
-    retrivedFileDataObj = await retriveFile('savedScoreData/varsArr.txt');
-    retrivedFileData = retrivedFileDataObj.fileData;
-    retrivedFileData_parsed = JSON.parse(retrivedFileData);
-    let tempVarsArray = retrivedFileData_parsed;
-    sec2start = tempVarsArray[0];
-    endSec2Time = tempVarsArray[1];
-    sec3StartTime = tempVarsArray[2];
-    sec3EndTime = tempVarsArray[3];
-    cresDurs = tempVarsArray[4];
-    sec3Accel = tempVarsArray[5];
-    sec3HocketPlayers = tempVarsArray[6];
-    sec3Cres = tempVarsArray[7];
-
-    retrivedFileDataObj = await retriveFile('savedScoreData/timeCodeByPart.txt');
-    retrivedFileData = retrivedFileDataObj.fileData;
-    retrivedFileData_parsed = JSON.parse(retrivedFileData);
-    timeCodeByPart = retrivedFileData_parsed;
-
-    retrivedFileDataObj = await retriveFile('savedScoreData/sec2TimeCodeByPart.txt');
-    retrivedFileData = retrivedFileDataObj.fileData;
-    retrivedFileData_parsed = JSON.parse(retrivedFileData);
-    sec2TimeCodeByPart = retrivedFileData_parsed;
-
-    retrivedFileDataObj = await retriveFile('savedScoreData/sec3HocketTimeCode.txt');
-    retrivedFileData = retrivedFileDataObj.fileData;
-    retrivedFileData_parsed = JSON.parse(retrivedFileData);
-    sec3HocketTimeCode = retrivedFileData_parsed;
-
-    retrivedFileDataObj = await retriveFile('savedScoreData/sec3CresTimeCodeByPart.txt');
-    retrivedFileData = retrivedFileDataObj.fileData;
-    retrivedFileData_parsed = JSON.parse(retrivedFileData);
-    sec3CresTimeCodeByPart = retrivedFileData_parsed;
-
-    retrivedFileDataObj = await retriveFile('savedScoreData/sec3AccelTimeCode.txt');
-    retrivedFileData = retrivedFileDataObj.fileData;
-    retrivedFileData_parsed = JSON.parse(retrivedFileData);
-    sec3AccelTimeCode = retrivedFileData_parsed;
-
-    retrivedFileDataObj = await retriveFile('savedScoreData/sec4TimeCode.txt');
-    retrivedFileData = retrivedFileDataObj.fileData;
-    retrivedFileData_parsed = JSON.parse(retrivedFileData);
-    sec4TimeCode = retrivedFileData_parsed;
-
-    notes = loadNotationSVGsPerSection();
-    partsToRun.forEach((numPartToRun, ix) => {
-      loadInitialNotation(numPartToRun);
-      partsToRun_eventMatrix.push(mkEventMatrixSec1_singlePart(numPartToRun));
-      partsToRun_sec2eventMatrix.push(mkEventMatrixSec2_singlePart(numPartToRun));
-      sec3HocketPlayers.forEach((hp) => {
-        if (numPartToRun == hp) {
-          partsToRun_sec3eventMatrixHocket.push(mkEventMatrixSec3Hocket_singlePart(numPartToRun));
-        }
-      });
-      sec3Cres.forEach((cp) => {
-        if (numPartToRun == cp) {
-          partsToRun_sec3eventMatrixCres.push((numPartToRun));
-        }
-      });
-      sec3Accel.forEach((ap) => {
-        if (numPartToRun == ap) {
-          partsToRun_sec3eventMatrixAccel.push((numPartToRun));
-        }
-      });
-      partsToRun_sec4eventMatrix.push((numPartToRun));
-    });
-    // init();
-
-    function retriveFile(path) {
-      return new Promise((resolve, reject) => {
-        let request = new XMLHttpRequest();
-        request.open('GET', path, true);
-        request.responseType = 'text';
-        request.onload = () => resolve({
-          fileData: request.response
-        });
-        request.onerror = reject;
-        request.send();
-      })
-    }
-
-  }
-  //</editor-fold> END LOAD SCORE DATA FUNCTION END
-}
-//<editor-fold>  < INIT FUNCTIONS >             //
-
-// FUNCTION: init ------------------------------------------------------ //
+//<editor-fold> << START UP WORKFLOW >> ------------------------------------ //
+/*
+1) init() is run from the html page->body <body onload='init();'>
+2) init() runs getUrlArgs() to get args from URL
+3) init() Get parts to run from urlArgsDict populate partsToRun array
+4) init() Establish whether to generate control panel or not from urlArgs
+5) init() -> run loadScoreData() which loads score data from .txt files and populates the event matrices
+///////// ---> everything else runs in this function as it is asynchronous
+6) loadScoreData() -> Make Control Panel
+7) Control Panel Start Button runs startPiece()
+*/
+//</editor-fold> >> END START UP WORKFLOW  ////////////////////////////////////
+//<editor-fold>  < INIT() >                              //
 function init() {
-  activateStartBtn();
+  urlArgsDict = getUrlArgs();
+  // Establish which parts to run
+  var partsStrArray = urlArgsDict.parts.split(';');
+  partsStrArray.forEach((it, ix) => {
+    partsToRun.push(parseInt(it));
+  });
+  // Does the page have score controls?
+  if (urlArgsDict.controls == 'yes') makeControlPanel = true;
+  // Run loadScoreData(), everything else runs in this function as it is asynchronous
+  loadScoreData();
 }
-//FUNCTION mkStartBtn ------------------------------------------------- //
-function activateStartBtn() {
-  var startButton = document.getElementById("startButton");
-  startButton.addEventListener("click", startPiece);
-}
-//FUNCTION mkStartBtn ------------------------------------------------- //
-function getCresStartTimes() {
-  // Find Pitch Change before sec2start
-  for (var i = 0; i < pitchChanges.length; i++) {
-    if (sec2start < pitchChanges[i][0]) {
-      sec2CresStart = pitchChanges[i][0];
-      break;
-    }
+//</editor-fold> END INIT() END
+
+//<editor-fold>  < LOAD SCORE DATA FUNCTION >            //
+async function loadScoreData() {
+  retrivedFileDataObj = await retriveFile('savedScoreData/pitchChanges.txt');
+  retrivedFileData = retrivedFileDataObj.fileData;
+  retrivedFileData_parsed = JSON.parse(retrivedFileData);
+  pitchChanges = retrivedFileData_parsed;
+  retrivedFileDataObj = await retriveFile('savedScoreData/varsArr.txt');
+  retrivedFileData = retrivedFileDataObj.fileData;
+  retrivedFileData_parsed = JSON.parse(retrivedFileData);
+  let tempVarsArray = retrivedFileData_parsed;
+  sec2start = tempVarsArray[0];
+  endSec2Time = tempVarsArray[1];
+  sec3StartTime = tempVarsArray[2];
+  sec3EndTime = tempVarsArray[3];
+  cresDurs = tempVarsArray[4];
+  sec3Accel = tempVarsArray[5];
+  sec3HocketPlayers = tempVarsArray[6];
+  sec3Cres = tempVarsArray[7];
+  retrivedFileDataObj = await retriveFile('savedScoreData/timeCodeByPart.txt');
+  retrivedFileData = retrivedFileDataObj.fileData;
+  retrivedFileData_parsed = JSON.parse(retrivedFileData);
+  timeCodeByPart = retrivedFileData_parsed;
+
+  retrivedFileDataObj = await retriveFile('savedScoreData/sec2TimeCodeByPart.txt');
+  retrivedFileData = retrivedFileDataObj.fileData;
+  retrivedFileData_parsed = JSON.parse(retrivedFileData);
+  sec2TimeCodeByPart = retrivedFileData_parsed;
+
+  retrivedFileDataObj = await retriveFile('savedScoreData/sec3HocketTimeCode.txt');
+  retrivedFileData = retrivedFileDataObj.fileData;
+  retrivedFileData_parsed = JSON.parse(retrivedFileData);
+  sec3HocketTimeCode = retrivedFileData_parsed;
+
+  retrivedFileDataObj = await retriveFile('savedScoreData/sec3CresTimeCodeByPart.txt');
+  retrivedFileData = retrivedFileDataObj.fileData;
+  retrivedFileData_parsed = JSON.parse(retrivedFileData);
+  sec3CresTimeCodeByPart = retrivedFileData_parsed;
+
+  retrivedFileDataObj = await retriveFile('savedScoreData/sec3AccelTimeCode.txt');
+  retrivedFileData = retrivedFileDataObj.fileData;
+  retrivedFileData_parsed = JSON.parse(retrivedFileData);
+  sec3AccelTimeCode = retrivedFileData_parsed;
+
+  retrivedFileDataObj = await retriveFile('savedScoreData/sec4TimeCode.txt');
+  retrivedFileData = retrivedFileDataObj.fileData;
+  retrivedFileData_parsed = JSON.parse(retrivedFileData);
+  sec4TimeCode = retrivedFileData_parsed;
+
+
+  //Make Notation Objects which will draw initial static content
+  partsToRun.forEach((partToRun, ptrix) => {
+    var newNO = mkNotationObject(partToRun, ptrix, CANVASW, CANVASH, RUNWAYLENGTH, [ptrix, partsToRun.length]);
+    notationObjects.push(newNO);
+  });
+
+  //load svgs - 1 set for each section satb
+  notes = loadNotationSVGsPerSection();
+
+  //Generate event matrices
+  partsToRun.forEach((numPartToRun, ix) => {
+    loadInitialNotation(numPartToRun); //loads initial pitches
+    partsToRun_eventMatrix.push(mkEventMatrixSec1_singlePart(numPartToRun));
+    partsToRun_sec2eventMatrix.push(mkEventMatrixSec2_singlePart(numPartToRun));
+    sec3HocketPlayers.forEach((hp) => {
+      if (numPartToRun == hp) {
+        let tar = [];
+        tar.push(hp);
+        tar.push(mkEventMatrixSec3Hocket_singlePart(numPartToRun));
+        partsToRun_sec3eventMatrixHocket.push(tar);
+      }
+    });
+    sec3Cres.forEach((cp) => {
+      if (numPartToRun == cp) {
+        let tar = [];
+        tar.push(numPartToRun);
+        tar.push(mkEventMatrixSec3Cres_singlePart(numPartToRun));
+        partsToRun_sec3eventMatrixCres.push(tar);
+      }
+    });
+    sec3Accel.forEach((ap) => {
+      if (numPartToRun == ap) {
+        let tar = [];
+        tar.push(numPartToRun);
+        tar.push(mkEventMatrixSec3Accel_singlePart(numPartToRun));
+        partsToRun_sec3eventMatrixAccel.push(tar);
+      }
+    });
+    partsToRun_sec4eventMatrix.push(mkEventMatrixSec4_singlePart(numPartToRun));
+  });
+
+
+
+
+
+  // MAKE CONTROL PANEL - if specified in URLargs
+  if (makeControlPanel) {
+    scoreCtrlPanel = mkCtrlPanel_ctrl('scoreCtrlPanel', 70, 163, 'Ctrl Panel', ['left-top', '0px', '0px', 'none'], 'xs');
   }
+
+
+  //helper function for async file retrevial
+  function retriveFile(path) {
+    return new Promise((resolve, reject) => {
+      let request = new XMLHttpRequest();
+      request.open('GET', path, true);
+      request.responseType = 'text';
+      request.onload = () => resolve({
+        fileData: request.response
+      });
+      request.onerror = reject;
+      request.send();
+    })
+  }
+
 }
-//FUNCTION play ------------------------------------------------------ //
+//</editor-fold> END LOAD SCORE DATA FUNCTION END
+
 function startPiece() {
-  if (!played) {
-    played = true;
-    startButton.parentNode.removeChild(startButton);
-    notes = loadInitialNotation();
-    // pieceClockAdjust(sec2start - 5);
+  if (!piece_hasStarted) {
+    piece_hasStarted = true;
+    var t_now = new Date(TS.now());
+    lastFrameTimeMs = t_now.getTime();
+    // epochStartTime = lastFrameTimeMs;
+    requestAnimationFrame(animationEngine);
+    // pieceClockAdjust(sec3StartTime - 5);
     // getCresStartTimes();
     // initAudio();
-    // requestAnimationFrame(animationEngine);
   }
 }
-//</editor-fold> END INIT FUNCTIONS END
 //</editor-fold> >> END START UP END  /////////////////////////////////////////
 
 //<editor-fold> << AUDIO >> ------------------------------------------------ //
@@ -386,12 +393,16 @@ function playsamp(path, rate, gainix) {
 //</editor-fold> >> END AUDIO END  ////////////////////////////////////////////
 
 // <editor-fold>  <<<< NOTATION OBJECT >>>> -------------------------------- //
-function mkNotationObject(ix, w, h, len, placementOrder) {
+function mkNotationObject(ix, ptrIX, w, h, len, placementOrder) {
   var notationObj = {};
   notationObj['ix'] = ix;
   // MAIN ID ------------- >
   var id = 'pitlPart' + ix;
   notationObj['id'] = id;
+  var sec2addCurveGate = true;
+  var sec2removeCurveGate = true;
+  var sec3addCurveGate = true;
+  var sec3removeCurveGate = true;
   // <editor-fold>  <<<< PART ARRANGEMENT IN BROWSER WINDOW >>>> -- //
   let runway_offsetX;
   let notation_offsetX, notation_autopos;
@@ -435,7 +446,7 @@ function mkNotationObject(ix, w, h, len, placementOrder) {
   //</editor-fold> END CANVAS, PANELS END
   // <editor-fold>  <<<< NOTATION OBJECT - 3JS >>>> ----------------- //
   // Camera ////////////////////////////////
-  camera = new THREE.PerspectiveCamera(75, CANVASW / CANVASH, 1, 3000);
+  let camera = new THREE.PerspectiveCamera(75, CANVASW / CANVASH, 1, 3000);
   // camera.position.set(0, 560, -148);
   // camera.rotation.x = rads(-68);
   let CAM_Y = 380;
@@ -443,8 +454,9 @@ function mkNotationObject(ix, w, h, len, placementOrder) {
   let CAM_ROTATION_X = -68;
   camera.position.set(0, CAM_Y, CAM_Z);
   camera.rotation.x = rads(CAM_ROTATION_X);
+  notationObj['camera'] = camera;
   // Scene /////////////////////////////////
-  scene = new THREE.Scene();
+  let scene = new THREE.Scene();
   // LIGHTS ////////////////////////////////
   var sun = new THREE.DirectionalLight(0xFFFFFF, 1.2);
   sun.position.set(100, 600, 175);
@@ -452,10 +464,12 @@ function mkNotationObject(ix, w, h, len, placementOrder) {
   var sun2 = new THREE.DirectionalLight(0x40A040, 0.6);
   sun2.position.set(-100, 350, 200);
   scene.add(sun2);
+  notationObj['scene'] = scene;
   // Renderer //////////////////////////////
-  renderer = new THREE.WebGLRenderer();
+  let renderer = new THREE.WebGLRenderer();
   renderer.setSize(CANVASW, CANVASH);
   runwayCanvas.appendChild(renderer.domElement);
+  notationObj['renderer'] = renderer;
   //</editor-fold> END NOTATION OBJECT - 3JS END
   // <editor-fold>  <<<< NOTATION OBJECT - STATIC ELEMENTS >>>> ----- //
   //<editor-fold>  < RUNWAY >             //
@@ -493,20 +507,19 @@ function mkNotationObject(ix, w, h, len, placementOrder) {
   tGoFret.position.y = GOFRETHEIGHT;
   tGoFret.position.x = 0;
   scene.add(tGoFret);
+  var tGoFretSet = [];
+  tGoFretSet.push(tGoFret);
+  tGoFretSet.push(goFretMatl);
+  goFrets.push(tGoFretSet);
   //</editor-fold> END GO FRET END
   //<editor-fold>  < NOTATION DIVS >             //
-  let notationCanvas = document.createElementNS(SVG_NS, "svg");
-  notationCanvas.setAttributeNS(null, "width", GOFRETWIDTH.toString());
-  notationCanvas.setAttributeNS(null, "height", notationCanvasH.toString());
-  notationCanvas.setAttributeNS(null, "id", "notationSVGcont" + ix.toString());
-  notationCanvas.setAttributeNS(null, "x", 0);
-  notationCanvas.style.backgroundColor = "white";
-  crvFollowCanvas.appendChild(notationCanvas);
-  let t_pcArr = [];
-  t_pcArr.push(ix);
-  t_pcArr.push(notationCanvas);
-  pitchContainers.push(t_pcArr);
-  pitchContainerDOMs.push(t_pcArr);
+  let crvCanvas = document.createElementNS(SVG_NS, "svg");
+  crvCanvas.setAttributeNS(null, "width", GOFRETWIDTH.toString());
+  crvCanvas.setAttributeNS(null, "height", notationCanvasH.toString());
+  crvCanvas.setAttributeNS(null, "id", "notationSVGcont" + ix.toString());
+  crvCanvas.setAttributeNS(null, "x", 0);
+  crvCanvas.style.backgroundColor = "white";
+  crvFollowCanvas.appendChild(crvCanvas);
   // NOTATION CANVAS BACKGROUND RECT
   let notationCvsBgRect = document.createElementNS(SVG_NS, "rect");
   notationCvsBgRect.setAttributeNS(null, "x", "0");
@@ -515,21 +528,32 @@ function mkNotationObject(ix, w, h, len, placementOrder) {
   notationCvsBgRect.setAttributeNS(null, "height", notationCanvasH.toString());
   notationCvsBgRect.setAttributeNS(null, "fill", "white");
   notationCvsBgRect.setAttributeNS(null, "id", "notationCvsBgRect" + ix.toString());
-  notationCanvas.appendChild(notationCvsBgRect);
+  crvCanvas.appendChild(notationCvsBgRect);
+  // NOTATION CANVAS BACKGROUND RECT
+  let notationCont = document.createElementNS(SVG_NS, "svg");
+  notationCont.setAttributeNS(null, "width", GOFRETWIDTH.toString());
+  notationCont.setAttributeNS(null, "height", notationCanvasH.toString());
+  notationCont.setAttributeNS(null, "id", "notationCont" + ix.toString());
+  notationCont.setAttributeNS(null, "x", 0);
+  notationCont.style.backgroundColor = "white";
+  crvFollowCanvas.appendChild(notationCont);
+  let t_pcArr = [];
+  t_pcArr.push(ix);
+  t_pcArr.push(notationCont);
+  pitchContainers.push(t_pcArr);
+  pitchContainerDOMs.push(t_pcArr);
   //</editor-fold> END NOTATION DIVS END
   //<editor-fold>  < CURVE FOLLOW RECTS >             //
   var tcresFollowRect = document.createElementNS(SVG_NS, "rect");
-  tcresFollowRect.setAttributeNS(null, "x", "0");
+  tcresFollowRect.setAttributeNS(null, "x", "1000");
   tcresFollowRect.setAttributeNS(null, "y", "0");
   tcresFollowRect.setAttributeNS(null, "width", GOFRETWIDTH.toString());
   tcresFollowRect.setAttributeNS(null, "height", "0");
   tcresFollowRect.setAttributeNS(null, "fill", "rgba(255, 21, 160, 0.5)");
   tcresFollowRect.setAttributeNS(null, "id", "cresFollowRect" + ix.toString());
   tcresFollowRect.setAttributeNS(null, "transform", "translate( 0, -3)");
-  let t_cfArr = [];
-  t_cfArr.push(ix);
-  t_cfArr.push(tcresFollowRect);
-  cresCrvFollowersRect.push(t_cfArr);
+  crvCanvas.appendChild(tcresFollowRect);
+  notationObj['crvFollowRect'] = tcresFollowRect;
   //</editor-fold> END CURVE FOLLOW RECTS END
   //<editor-fold>  < CURVES >             //
   var tcresSvgCrv = document.createElementNS(SVG_NS, "path");
@@ -546,11 +570,9 @@ function mkNotationObject(ix, w, h, len, placementOrder) {
   tcresSvgCrv.setAttributeNS(null, "stroke-width", "4");
   tcresSvgCrv.setAttributeNS(null, "fill", "none");
   tcresSvgCrv.setAttributeNS(null, "id", "cresCrv" + ix.toString());
-  tcresSvgCrv.setAttributeNS(null, "transform", "translate( 0, -3)");
-  let t_ccArr = [];
-  t_ccArr.push(ix);
-  t_ccArr.push(tcresSvgCrv);
-  cresSvgCrvs.push(t_ccArr);
+  tcresSvgCrv.setAttributeNS(null, "transform", "translate( 1000, -3)");
+  crvCanvas.appendChild(tcresSvgCrv);
+  notationObj['crv'] = tcresSvgCrv;
   //</editor-fold> END CURVES END
   //<editor-fold>  < CURVE FOLLOWERS >             //
   var tcresSvgCirc = document.createElementNS(SVG_NS, "circle");
@@ -560,26 +582,392 @@ function mkNotationObject(ix, w, h, len, placementOrder) {
   tcresSvgCirc.setAttributeNS(null, "stroke", "none");
   tcresSvgCirc.setAttributeNS(null, "fill", "rgba(255, 21, 160, 0.5)");
   tcresSvgCirc.setAttributeNS(null, "id", "cresCrvCirc" + ix.toString());
-  tcresSvgCirc.setAttributeNS(null, "transform", "translate( 0, -3)");
-  let t_ccfArr = [];
-  t_ccfArr.push(ix);
-  t_ccfArr.push(tcresSvgCirc);
-  cresCrvFollowers.push(t_ccfArr);
+  tcresSvgCirc.setAttributeNS(null, "transform", "translate( 1000, -3)");
+  crvCanvas.appendChild(tcresSvgCirc)
+  notationObj['crvFollowCirc'] = tcresSvgCirc;
   //Make FOLLOWERS
   var tcrvFset = [];
   tcrvFset.push(true);
   tcrvFset.push(0.0);
-  let t_cfsArr = [];
-  t_cfsArr.push(ix);
-  t_cfsArr.push(tcrvFset);
-  crvFollowData.push(t_cfsArr);
+  crvFollowData.push(tcrvFset);
   //</editor-fold> END CURVE FOLLOWERS END
   // </editor-fold>     END NOTATION OBJECT - STATIC ELEMENTS END
+  // <editor-fold>  <<<< NOTATION OBJECT - ANIMATE >>>> ------------- //
+  notationObj['animate'] = function() {
+    // // SECTION 1
+    for (var j = 0; j < partsToRun_eventMatrix[ptrIX].length; j++) {
+      //add the tf to the scene if it is on the runway
+      if (partsToRun_eventMatrix[ptrIX][j][1].position.z > (-RUNWAYLENGTH) && partsToRun_eventMatrix[ptrIX][j][1].position.z < GOFRETPOSZ) {
+        if (partsToRun_eventMatrix[ptrIX][j][0]) {
+          partsToRun_eventMatrix[ptrIX][j][0] = false;
+          scene.add(partsToRun_eventMatrix[ptrIX][j][1]);
+        }
+      }
+      //advance tf if it is not past gofret
+      if (partsToRun_eventMatrix[ptrIX][j][1].position.z < GOFRETPOSZ) {
+        partsToRun_eventMatrix[ptrIX][j][1].position.z += PXPERFRAME;
+      }
+      //When tf reaches goline, blink and remove
+      if (framect == partsToRun_eventMatrix[ptrIX][j][2]) {
+        goFretBlink[ptrIX] = framect + 9;
+        scene.remove(scene.getObjectByName(partsToRun_eventMatrix[ptrIX][j][1].name));
+      }
+    }
+    ///// SECTION 2 ------------------------------------------------------- //
+    for (var j = 0; j < partsToRun_sec2eventMatrix[ptrIX].length; j++) {
+      //add the tf to the scene if it is on the runway
+      if (partsToRun_sec2eventMatrix[ptrIX][j][1].position.z > (-RUNWAYLENGTH) && partsToRun_sec2eventMatrix[ptrIX][j][1].position.z < GOFRETPOSZ) {
+        if (partsToRun_sec2eventMatrix[ptrIX][j][0]) {
+          partsToRun_sec2eventMatrix[ptrIX][j][0] = false;
+          scene.add(partsToRun_sec2eventMatrix[ptrIX][j][1]);
+        }
+      }
+      //advance tf if it is not past gofret
+      if (partsToRun_sec2eventMatrix[ptrIX][j][1].position.z < (GOFRETPOSZ + partsToRun_sec2eventMatrix[ptrIX][j][7])) {
+        partsToRun_sec2eventMatrix[ptrIX][j][1].position.z += PXPERFRAME;
+      }
+      //When tf reaches goline, blink and remove
+      if (framect >= partsToRun_sec2eventMatrix[ptrIX][j][2] && framect < partsToRun_sec2eventMatrix[ptrIX][j][6]) {
+        goFretBlink[ptrIX] = framect + 9;
+        crvFollowData[ptrIX][0] = true;
+        crvFollowData[ptrIX][1] = scale(framect, partsToRun_sec2eventMatrix[ptrIX][j][2], partsToRun_sec2eventMatrix[ptrIX][j][6], 0.0, 1.0);
+      }
+      //end of event remove
+      if (framect == partsToRun_sec2eventMatrix[ptrIX][j][6]) {
+        crvFollowData[ptrIX][0] = false;
+        scene.remove(scene.getObjectByName(partsToRun_sec2eventMatrix[ptrIX][j][1].name));
+      }
+    }
+    //crv follow
+    // var tnewCresEvent = [true, tcresEventMesh, tGoFrm, tTime, tNumPxTilGo, tiGoPx, tOffFrm, tcresEventLength]; //[gate so tempofret is added to scene only once, mesh, goFrame]
+    if (crvFollowData[ptrIX][0]) {
+      var tcoordsix = Math.floor(scale(crvFollowData[ptrIX][1], 0.0, 1.0, 0, cresCrvCoords.length));
+      //circ
+      tcresSvgCirc.setAttributeNS(null, "cx", cresCrvCoords[tcoordsix].x.toString());
+      tcresSvgCirc.setAttributeNS(null, "cy", cresCrvCoords[tcoordsix].y.toString());
+      //rect
+      var temph = notationCanvasH - cresCrvCoords[tcoordsix].y;
+      tcresFollowRect.setAttributeNS(null, "y", cresCrvCoords[tcoordsix].y.toString());
+      tcresFollowRect.setAttributeNS(null, "height", temph.toString());
+    }
+    // // SECTION 3 - Hocket
+    let t_evtSet;
+    let t_shouldRun = false;
+    partsToRun_sec3eventMatrixHocket.forEach((pn_evtSet_ar) => {
+      let plrNum = pn_evtSet_ar[0];
+      if (ix == plrNum) {
+        t_evtSet = pn_evtSet_ar[1];
+        t_shouldRun = true;
+      }
+    });
+    if (t_shouldRun) {
+      for (var j = 0; j < t_evtSet.length; j++) {
+        //add the tf to the scene if it is on the runway
+        if (t_evtSet[j][1].position.z > (-RUNWAYLENGTH) && t_evtSet[j][1].position.z < GOFRETPOSZ) {
 
+          if (t_evtSet[j][0]) {
+            t_evtSet[j][0] = false;
+            scene.add(t_evtSet[j][1]);
+          }
+        }
+        //advance tf if it is not past gofret
+        if (t_evtSet[j][1].position.z < GOFRETPOSZ) {
+          t_evtSet[j][1].position.z += PXPERFRAME;
+        }
+        //When tf reaches goline, blink and remove
+        if (framect == t_evtSet[j][2]) {
+          goFretBlink[ptrIX] = framect + 9;
+          scene.remove(scene.getObjectByName(t_evtSet[j][1].name));
+        }
+      }
+    }
+
+    ///// SECTION 3 - Cres ------------------------------------------------------- //
+    let t_evtSet2;
+    let t_shouldRun2 = false;
+    partsToRun_sec3eventMatrixCres.forEach((pn_evtSet_ar) => {
+      let plrNum = pn_evtSet_ar[0];
+      if (ix == plrNum) {
+        t_evtSet2 = pn_evtSet_ar[1];
+        t_shouldRun2 = true;
+      }
+    });
+    if (t_shouldRun2) {
+      for (var j = 0; j < t_evtSet2.length; j++) {
+        //add the tf to the scene if it is on the runway
+        if (t_evtSet2[j][1].position.z > (-RUNWAYLENGTH) && t_evtSet2[j][1].position.z < GOFRETPOSZ) {
+          if (t_evtSet2[j][0]) {
+            t_evtSet2[j][0] = false;
+            scene.add(t_evtSet2[j][1]);
+          }
+        }
+        //advance tf if it is not past gofret
+        if (t_evtSet2[j][1].position.z < (GOFRETPOSZ + t_evtSet2[j][7])) {
+          t_evtSet2[j][1].position.z += PXPERFRAME;
+        }
+        //When tf reaches goline, blink and remove
+        if (framect >= Math.round(t_evtSet2[j][2]) && framect < Math.round(t_evtSet2[j][6])) {
+          goFretBlink[ptrIX] = framect + 9;
+          crvFollowData[ptrIX][0] = true;
+          crvFollowData[ptrIX][1] = scale(framect, t_evtSet2[j][2], t_evtSet2[j][6], 0.0, 1.0);
+        }
+
+        //end of event remove
+        if (framect == t_evtSet2[j][6]) {
+          crvFollowData[ptrIX][0] = false;
+          scene.remove(scene.getObjectByName(t_evtSet2[j][1].name));
+        }
+      }
+      //crv follow
+      // var tnewCresEvent = [true, tcresEventMesh, tGoFrm, tTime, tNumPxTilGo, tiGoPx, tOffFrm, tcresEventLength]; //[gate so tempofret is added to scene only once, mesh, goFrame]
+      if (crvFollowData[ptrIX][0]) {
+        var tcoordsix = Math.floor(scale(crvFollowData[ptrIX][1], 0.0, 1.0, 0, cresCrvCoords.length));
+        //circ
+        tcresSvgCirc.setAttributeNS(null, "cx", cresCrvCoords[tcoordsix].x.toString());
+        tcresSvgCirc.setAttributeNS(null, "cy", cresCrvCoords[tcoordsix].y.toString());
+        //rect
+        var temph = notationCanvasH - cresCrvCoords[tcoordsix].y;
+        tcresFollowRect.setAttributeNS(null, "y", cresCrvCoords[tcoordsix].y.toString());
+        tcresFollowRect.setAttributeNS(null, "height", temph.toString());
+      }
+    }
+
+    // // // SECTION 3 - Accel
+    let t_evtSet3;
+    let t_shouldRun3 = false;
+    partsToRun_sec3eventMatrixAccel.forEach((pn_evtSet_ar) => {
+      let plrNum = pn_evtSet_ar[0];
+      if (ix == plrNum) {
+        t_evtSet3 = pn_evtSet_ar[1];
+        t_shouldRun3 = true;
+      }
+    });
+    if (t_shouldRun3) {
+      for (var j = 0; j < t_evtSet3.length; j++) {
+        //add the tf to the scene if it is on the runway
+        if (t_evtSet3[j][1].position.z > (-RUNWAYLENGTH) && t_evtSet3[j][1].position.z < GOFRETPOSZ) {
+
+          if (t_evtSet3[j][0]) {
+            t_evtSet3[j][0] = false;
+            scene.add(t_evtSet3[j][1]);
+          }
+        }
+        //advance tf if it is not past gofret
+        if (t_evtSet3[j][1].position.z < GOFRETPOSZ) {
+          t_evtSet3[j][1].position.z += PXPERFRAME;
+        }
+        //When tf reaches goline, blink and remove
+        if (framect == t_evtSet3[j][2]) {
+          goFretBlink[ptrIX] = framect + 9;
+          scene.remove(scene.getObjectByName(t_evtSet3[j][1].name));
+        }
+      }
+    }
+
+    // SECTION 4
+    for (var j = 0; j < partsToRun_sec4eventMatrix[ptrIX].length; j++) {
+      //add the tf to the scene if it is on the runway
+      if (partsToRun_sec4eventMatrix[ptrIX][j][1].position.z > (-RUNWAYLENGTH) && partsToRun_sec4eventMatrix[ptrIX][j][1].position.z < GOFRETPOSZ) {
+        if (partsToRun_sec4eventMatrix[ptrIX][j][0]) {
+          partsToRun_sec4eventMatrix[ptrIX][j][0] = false;
+          scene.add(partsToRun_sec4eventMatrix[ptrIX][j][1]);
+        }
+      }
+      //advance tf if it is not past gofret
+      if (partsToRun_sec4eventMatrix[ptrIX][j][1].position.z < GOFRETPOSZ) {
+        partsToRun_sec4eventMatrix[ptrIX][j][1].position.z += PXPERFRAME;
+      }
+      //When tf reaches goline, blink and remove
+      if (framect == partsToRun_sec4eventMatrix[ptrIX][j][2]) {
+        goFretBlink[ptrIX] = framect + 9;
+        scene.remove(scene.getObjectByName(partsToRun_sec4eventMatrix[ptrIX][j][1].name));
+      }
+    }
+
+    // NOTATION --------------------------------------------------------- //
+    //REMOVE PREVIOUS NOTATION
+    for (var i = 1; i < pitchChanges.length; i++) {
+
+      if (pitchChanges[i][1] == framect) {
+
+        if (ix < 4) {
+          for (var l = 0; l < notationCont.children.length; l++) {
+            notationCont.removeChild(notationCont.children[l]);
+          }
+          currentPitches[ptrIX] = parseFloat(pitchChanges[ix][2][0][ptrIX][1]);
+          var timg = notes[0][roundByStep(pitchChanges[i][2][0][ix][1], 0.5)];
+          notationCont.appendChild(timg);
+        } else if (ix >= 4 && ix < 8) {
+          var j = ix - 4;
+          for (var l = 0; l < notationCont.children.length; l++) {
+            notationCont.removeChild(notationCont.children[l]);
+          }
+          currentPitches[ptrIX] = parseFloat(pitchChanges[i][2][1][j][1]);
+          var timg = notes[1][roundByStep(pitchChanges[i][2][1][j][1], 0.5)];
+          notationCont.appendChild(timg);
+        } else if (ix >= 8 && ix < 12) {
+          var j = ix - 8;
+          for (var l = 0; l < notationCont.children.length; l++) {
+            notationCont.removeChild(notationCont.children[l]);
+          }
+          currentPitches[ptrIX] = parseFloat(pitchChanges[i][2][2][j][1]);
+          var timg = notes[2][roundByStep(pitchChanges[i][2][2][j][1], 0.5)];
+          notationCont.appendChild(timg);
+        } else if (ix >= 12 && ix < 16) {
+          var j = ix - 12;
+          for (var l = 0; l < notationCont.children.length; l++) {
+            notationCont.removeChild(notationCont.children[l]);
+          }
+          currentPitches[ptrIX] = parseFloat(pitchChanges[i][2][3][j][1]);
+          var timg = notes[3][roundByStep(pitchChanges[i][2][3][j][1], 0.5)];
+          notationCont.appendChild(timg);
+        }
+      }
+    }
+    //Move crv followers into frame only when needed
+    if (framect == (Math.round((sec2start - 2) * FRAMERATE) + (leadTime * FRAMERATE))) {
+      if (sec2addCurveGate) {
+        sec2addCurveGate = false;
+        tcresSvgCrv.setAttributeNS(null, "transform", "translate( 0, -3)");
+        tcresSvgCirc.setAttributeNS(null, "transform", "translate( 0, -3)");
+        tcresFollowRect.setAttributeNS(null, "x", '0');
+      }
+    }
+    // Remove curves at end of section 2
+    if (framect == (Math.round((sec3StartTime - 3) * FRAMERATE) + (leadTime * FRAMERATE))) {
+      if (sec2removeCurveGate) {
+        sec2removeCurveGate = false;
+        sec3Cres.forEach((cresPartNum) => {
+          if (ix != cresPartNum) {
+            tcresSvgCrv.setAttributeNS(null, "transform", "translate( 1000, -3)");
+            tcresSvgCirc.setAttributeNS(null, "transform", "translate( 1000, -3)");
+            tcresFollowRect.setAttributeNS(null, "x", '1000');
+          }
+        });
+      }
+    }
+    //Move crv followers into frame for sec 3
+    if (framect == (Math.round((sec3StartTime - 1) * FRAMERATE) + (leadTime * FRAMERATE))) {
+      if (sec3addCurveGate) {
+        sec3addCurveGate = false;
+        sec3Cres.forEach((cresPartNum) => {
+          if (ix == cresPartNum) {
+            tcresSvgCrv.setAttributeNS(null, "transform", "translate( 0, -3)");
+            tcresSvgCirc.setAttributeNS(null, "transform", "translate( 0, -3)");
+            tcresFollowRect.setAttributeNS(null, "x", '0');
+          }
+        });
+      }
+    }
+    // //Remove rest of curves at end of section 3
+    if (framect == (Math.round((sec3EndTime + 5) * FRAMERATE) + (leadTime * FRAMERATE))) {
+      if (sec3removeCurveGate) {
+        sec3removeCurveGate = false;
+        tcresSvgCrv.setAttributeNS(null, "transform", "translate( 1000, -3)");
+        tcresSvgCirc.setAttributeNS(null, "transform", "translate( 1000, -3)");
+        tcresFollowRect.setAttributeNS(null, "x", '1000');
+      }
+    }
+  }
+  // </editor-fold>  END NOTATION OBJECT - ANIMATE END
   // RENDER /////////////////////////////////////////////
   renderer.render(scene, camera);
+  return notationObj;
 }
 // </editor-fold> <<<< END NOTATION OBJECT >>>> ---------------------------- //
+
+//<editor-fold> << CONTROL PANEL >> ---------------------------------------- //
+function mkCtrlPanel_ctrl(id, w, h, title, posArr, headerSize) {
+  let panelObj = mkCtrlPanel(id, w, h, title, posArr, headerSize);
+  let panel = panelObj.panel;
+  let canvas = panelObj.canvas;
+  let btnW = w - 15;
+  let btnH = 36;
+  //<editor-fold>  < CONTROL PANEL - START BUTTON >        //
+  let startBtnFunc = function() {
+    if (startBtn_isActive) {
+      let tsNow_Date = new Date(TS.now());
+      let absStartTime = tsNow_Date.getTime();
+      SOCKET.emit('pitl_startpiece', {});
+    }
+  }
+  let startBtn = mkButton(canvas, id + 'startbtn', btnW, btnH, 0, 0, 'Start', 12, startBtnFunc);
+  panelObj['startBtn'] = startBtn;
+  // SOCKET IO - START PIECE ------ >
+  SOCKET.on('pitl_startpiecebroadcast', function(data) {
+    if (piece_canStart) {
+      piece_canStart = false;
+      startBtn_isActive = false;
+      stopBtn_isActive = true;
+      pauseBtn_isActive = true;
+      animation_isGo = true;
+      scoreCtrlPanel.stopBtn.className = 'btn btn-1';
+      scoreCtrlPanel.startBtn.className = 'btn btn-1_inactive';
+      scoreCtrlPanel.pauseBtn.className = 'btn btn-1';
+      scoreCtrlPanel.panel.smallify();
+      startPiece();
+    }
+  });
+  //</editor-fold> END START BUTTON END
+  //<editor-fold>  < CONTROL PANEL - PAUSE BUTTON >        //
+  let pauseBtnFunc = function() {
+    if (pauseBtn_isActive) {
+      pauseState = (pauseState + 1) % 2;
+      let tsNow_Date = new Date(TS.now());
+      let pauseTime = tsNow_Date.getTime()
+      if (pauseState == 1) { //Paused
+        SOCKET.emit('pitl_pause', {
+          pauseState: pauseState,
+          pauseTime: pauseTime
+        });
+      } else if (pauseState == 0) { //unpaused
+        let globalPauseTime = pauseTime - pausedTime;
+        SOCKET.emit('pitl_pause', {
+          pauseState: pauseState,
+          pauseTime: globalPauseTime
+        });
+      }
+    }
+  }
+  let pauseBtn = mkButton(canvas, id + 'pausebtn', btnW, btnH, 51, 0, 'Pause', 12, pauseBtnFunc);
+  panelObj['pauseBtn'] = pauseBtn;
+  pauseBtn.className = 'btn btn-1_inactive';
+  // SOCKET IO - PAUSE BROADCAST -- >
+  SOCKET.on('pitl_pauseBroadcast', function(data) {
+    pauseState = data.pauseState;
+    if (pauseState == 0) { //unpaused
+      pieceTimeAdjustment = data.pauseTime + pieceTimeAdjustment;
+      scoreCtrlPanel.pauseBtn.innerText = 'Pause';
+      scoreCtrlPanel.pauseBtn.className = 'btn btn-1';
+      scoreCtrlPanel.panel.smallify();
+      animation_isGo = true;
+      requestAnimationFrame(animationEngine);
+    } else if (pauseState == 1) { //paused
+      pausedTime = data.pauseTime
+      animation_isGo = false;
+      scoreCtrlPanel.pauseBtn.innerText = 'Resume';
+      scoreCtrlPanel.pauseBtn.className = 'btn btn-2';
+    }
+  });
+  //</editor-fold> END PAUSE BUTTON END
+  //<editor-fold>  < CONTROL PANEL - STOP BUTTON >         //
+  let stopBtnFunc = function() {
+    if (stopBtn_isActive) {
+      SOCKET.emit('pitl_stop', {});
+    }
+  }
+  let stopBtn = mkButton(canvas, id + 'stopbtn', btnW, btnH, 51 + btnH + 16, 0, 'stop', 12, stopBtnFunc);
+  panelObj['stopBtn'] = stopBtn;
+  // SOCKET IO - STOP ------------- >
+  stopBtn.className = 'btn btn-1_inactive';
+  SOCKET.on('pitl_stopBroadcast', function(data) {
+    location.reload();
+  });
+  //</editor-fold> END STOP BUTTON END
+  return panelObj;
+}
+//</editor-fold> >> CONTROL PANEL  ////////////////////////////////////////////
+
 
 //<editor-fold> << FUNC TO LOAD INITIAL NOTATION FOR ALL PARTS  >> --------- //
 // var ranges = [[40, 60],[48, 67],[53, 74],[60, 81]];
@@ -657,462 +1045,7 @@ function loadInitialNotation(playerNum) {
 }
 //</editor-fold> >> END FUNC TO LOAD INITIAL NOTATION FOR ALL PARTS END  //////
 
-//<editor-fold> << ANIMATION ENGINE >> ------------------------------------- //
-//<editor-fold>  < ANIMATION ENGINE - ENGINE >           //
-function animationEngine(timestamp) {
-  var t_now = new Date(TS.now());
-  t_lt = t_now.getTime() - timeAdjustment;
-  // calcClock(t_lt);
-  delta += t_lt - lastFrameTimeMs;
-  lastFrameTimeMs = t_lt;
-  while (delta >= MSPERFRAME) {
-    update(MSPERFRAME, t_lt);
-    draw();
-    delta -= MSPERFRAME;
-  }
-  if (animationGo) requestAnimationFrame(animationEngine);
-}
-//</editor-fold> END ANIMATION ENGINE - ENGINE END
-//<editor-fold>     < ANIMATION ENGINE - UPDATE >           //
-function update(aMSPERFRAME, currTimeMS) {
-  framect++;
-  pieceClock += aMSPERFRAME;
-  pieceClock = pieceClock - clockadj;
-  // ANIMATE ---------------------- >
-  notationObjects.forEach(function(objToAnimate, ix) {
-    objToAnimate.animate(partsToRunEvents[ix]);
-  });
-}
-//</editor-fold> END ANIMATION ENGINE - UPDATE END
-//<editor-fold>     < ANIMATION ENGINE - DRAW >             //
-function draw() {
-  // RENDER ----------------------- >
-  notationObjects.forEach(function(objToRender, ix) {
-    objToRender.renderer.render(objToRender.scene, objToRender.camera);
-  });
-}
-//</editor-fold> END ANIMATION ENGINE - DRAW END    //
-//</editor-fold>  > END ANIMATION ENGINE  /////////////////////////////////////
-function pieceClockAdjust(time) {
-  var tNewFrame = (time + leadTime) * FRAMERATE;
-  // var tNewFrame = time * FRAMERATE;
-  framect = Math.round(tNewFrame);
-  //Sec 1
-  for (var i = 0; i < eventMatrix.length; i++) {
-    for (var j = 0; j < eventMatrix[i].length; j++) {
-      //move each event
-      eventMatrix[i][j][1].position.z += (tNewFrame * PXPERFRAME);
-    }
-  }
-  //Sec 2
-  for (var i = 0; i < sec2eventMatrix.length; i++) {
-    for (var j = 0; j < sec2eventMatrix[i].length; j++) {
-      //move each event
-      sec2eventMatrix[i][j][1].position.z += (tNewFrame * PXPERFRAME);
-    }
-  }
-  //Sec 3
-  //hocket
-  for (var i = 0; i < sec3eventMatrixHocket.length; i++) {
-    for (var j = 0; j < sec3eventMatrixHocket[i].length; j++) {
-      sec3eventMatrixHocket[i][j][1].position.z += (tNewFrame * PXPERFRAME);
-    }
-  }
-  //cres
-  for (var i = 0; i < sec3eventMatrixCres.length; i++) {
-    for (var j = 0; j < sec3eventMatrixCres[i].length; j++) {
-      sec3eventMatrixCres[i][j][1].position.z += (tNewFrame * PXPERFRAME);
-    }
-  }
-  //Accel
-  for (var i = 0; i < sec3eventMatrixAccel.length; i++) {
-    for (var j = 0; j < sec3eventMatrixAccel[i].length; j++) {
-      sec3eventMatrixAccel[i][j][1].position.z += (tNewFrame * PXPERFRAME);
-    }
-  }
-  //Section 4
-  for (var i = 0; i < sec4eventMatrix.length; i++) {
-    for (var j = 0; j < sec4eventMatrix[i].length; j++) {
-      sec4eventMatrix[i][j][1].position.z += (tNewFrame * PXPERFRAME);
-    }
-  }
-}
-
-// UPDATE -------------------------------------------------------------- //
-function update(aMSPERFRAME) {
-  // CLOCK ///////////////////////////////////////////////
-  framect++;
-  pieceClock += aMSPERFRAME;
-  pieceClock = pieceClock - clockadj;
-  // // EVENTS /////////////////////////////////////////////////////
-  // // // SECTION 1
-  for (var i = 0; i < eventMatrix.length; i++) {
-    for (var j = 0; j < eventMatrix[i].length; j++) {
-      //add the tf to the scene if it is on the runway
-      if (eventMatrix[i][j][1].position.z > (-RUNWAYLENGTH) && eventMatrix[i][j][1].position.z < GOFRETPOSZ) {
-        if (eventMatrix[i][j][0]) {
-          eventMatrix[i][j][0] = false;
-          scene.add(eventMatrix[i][j][1]);
-        }
-      }
-      //advance tf if it is not past gofret
-      if (eventMatrix[i][j][1].position.z < GOFRETPOSZ) {
-        eventMatrix[i][j][1].position.z += PXPERFRAME;
-      }
-      //When tf reaches goline, blink and remove
-      if (framect == eventMatrix[i][j][2]) {
-        goFretBlink[i] = framect + 9;
-        scene.remove(scene.getObjectByName(eventMatrix[i][j][1].name));
-        var tactMidi = currentPitches[i];
-        var troundMidi = limitRange(Math.round(tactMidi), 45, 81);
-        var tspeed = midiToSpeed(troundMidi, tactMidi);
-        if (i < 8) { //this is for male voices
-          playsamp(maleSamps[troundMidi.toString()], tspeed, i);
-        } else { //female voices
-          playsamp(femaleSamps[troundMidi.toString()], tspeed, i);
-        }
-      }
-    }
-  }
-  ///// SECTION 2 ------------------------------------------------------- //
-  for (var i = 0; i < sec2eventMatrix.length; i++) {
-    for (var j = 0; j < sec2eventMatrix[i].length; j++) {
-      //add the tf to the scene if it is on the runway
-      if (sec2eventMatrix[i][j][1].position.z > (-RUNWAYLENGTH) && sec2eventMatrix[i][j][1].position.z < GOFRETPOSZ) {
-        if (sec2eventMatrix[i][j][0]) {
-          sec2eventMatrix[i][j][0] = false;
-          scene.add(sec2eventMatrix[i][j][1]);
-        }
-      }
-      //advance tf if it is not past gofret
-      if (sec2eventMatrix[i][j][1].position.z < (GOFRETPOSZ + sec2eventMatrix[i][j][7])) {
-        sec2eventMatrix[i][j][1].position.z += PXPERFRAME;
-      }
-      //When tf reaches goline, blink and remove
-      if (framect >= sec2eventMatrix[i][j][2] && framect < sec2eventMatrix[i][j][6]) {
-        goFretBlink[i] = framect + 9;
-        crvFollowData[i][0] = true;
-        crvFollowData[i][1] = scale(framect, sec2eventMatrix[i][j][2], sec2eventMatrix[i][j][6], 0.0, 1.0);
-      }
-      //// PLAY SAMPLES
-      if (framect == sec2eventMatrix[i][j][2]) {
-        // Play Samples
-        var tactMidi = currentPitches[i];
-        var troundMidi = limitRange(Math.round(tactMidi), 45, 81);
-        var tspeed = midiToSpeed(troundMidi, tactMidi);
-        if (i < 8) { //this is for male voices
-          playsamp(maleSampsLong[troundMidi.toString()], tspeed, i);
-        } else { //female voices
-          playsamp(femaleSampsLong[troundMidi.toString()], tspeed, i);
-        }
-      }
-      //end of event remove
-      if (framect == sec2eventMatrix[i][j][6]) {
-        crvFollowData[i][0] = false;
-        scene.remove(scene.getObjectByName(sec2eventMatrix[i][j][1].name));
-        cresGainNodes[i].gain.linearRampToValueAtTime(0.0, actx.currentTime + 0.5);
-      }
-    }
-    //crv follow
-    // var tnewCresEvent = [true, tcresEventMesh, tGoFrm, tTime, tNumPxTilGo, tiGoPx, tOffFrm, tcresEventLength]; //[gate so tempofret is added to scene only once, mesh, goFrame]
-    if (crvFollowData[i][0]) {
-      var tcoordsix = Math.floor(scale(crvFollowData[i][1], 0.0, 1.0, 0, cresCrvCoords.length));
-      //circ
-      cresCrvFollowers[i].setAttributeNS(null, "cx", cresCrvCoords[tcoordsix].x.toString());
-      cresCrvFollowers[i].setAttributeNS(null, "cy", cresCrvCoords[tcoordsix].y.toString());
-      //rect
-      var temph = notationCanvasH - cresCrvCoords[tcoordsix].y;
-      cresCrvFollowersRect[i].setAttributeNS(null, "y", cresCrvCoords[tcoordsix].y.toString());
-      cresCrvFollowersRect[i].setAttributeNS(null, "height", temph.toString());
-    }
-  }
-  // // // SECTION 3 - Hocket
-  for (var i = 0; i < sec3eventMatrixHocket.length; i++) {
-    for (var j = 0; j < sec3eventMatrixHocket[i].length; j++) {
-      //add the tf to the scene if it is on the runway
-      if (sec3eventMatrixHocket[i][j][1].position.z > (-RUNWAYLENGTH) && sec3eventMatrixHocket[i][j][1].position.z < GOFRETPOSZ) {
-
-        if (sec3eventMatrixHocket[i][j][0]) {
-          sec3eventMatrixHocket[i][j][0] = false;
-          scene.add(sec3eventMatrixHocket[i][j][1]);
-        }
-      }
-      //advance tf if it is not past gofret
-      if (sec3eventMatrixHocket[i][j][1].position.z < GOFRETPOSZ) {
-        sec3eventMatrixHocket[i][j][1].position.z += PXPERFRAME;
-      }
-      //When tf reaches goline, blink and remove
-      if (framect == sec3eventMatrixHocket[i][j][2]) {
-        goFretBlink[sec3HocketPlayers[i]] = framect + 9;
-        scene.remove(scene.getObjectByName(sec3eventMatrixHocket[i][j][1].name));
-        var tactMidi = currentPitches[sec3HocketPlayers[i]];
-        var troundMidi = limitRange(Math.round(tactMidi), 45, 81);
-        var tspeed = midiToSpeed(troundMidi, tactMidi);
-        if (sec3HocketPlayers[i] < 8) { //this is for male voices
-          playsamp(maleSamps[troundMidi.toString()], tspeed, sec3HocketPlayers[i]);
-        } else { //female voices
-          playsamp(femaleSamps[troundMidi.toString()], tspeed, sec3HocketPlayers[i]);
-        }
-      }
-    }
-  }
-  ///// SECTION 3 - Cres ------------------------------------------------------- //
-  for (var i = 0; i < sec3eventMatrixCres.length; i++) {
-    for (var j = 0; j < sec3eventMatrixCres[i].length; j++) {
-      //add the tf to the scene if it is on the runway
-      if (sec3eventMatrixCres[i][j][1].position.z > (-RUNWAYLENGTH) && sec3eventMatrixCres[i][j][1].position.z < GOFRETPOSZ) {
-        if (sec3eventMatrixCres[i][j][0]) {
-          sec3eventMatrixCres[i][j][0] = false;
-          scene.add(sec3eventMatrixCres[i][j][1]);
-        }
-      }
-      //advance tf if it is not past gofret
-      if (sec3eventMatrixCres[i][j][1].position.z < (GOFRETPOSZ + sec3eventMatrixCres[i][j][7])) {
-        sec3eventMatrixCres[i][j][1].position.z += PXPERFRAME;
-      }
-      //When tf reaches goline, blink and remove
-      if (framect >= Math.round(sec3eventMatrixCres[i][j][2]) && framect < Math.round(sec3eventMatrixCres[i][j][6])) {
-        goFretBlink[sec3Cres[i]] = framect + 9;
-        crvFollowData[sec3Cres[i]][0] = true;
-        crvFollowData[sec3Cres[i]][1] = scale(framect, sec3eventMatrixCres[i][j][2], sec3eventMatrixCres[i][j][6], 0.0, 1.0);
-      }
-      if (framect == Math.round(sec3eventMatrixCres[i][j][2])) {
-        // Play Samples
-        var tactMidi = currentPitches[sec3Cres[i]];
-        var troundMidi = limitRange(Math.round(tactMidi), 45, 81);
-        var tspeed = midiToSpeed(troundMidi, tactMidi);
-        if (sec3Cres[i] < 8) { //this is for male voices
-          playsamp(maleSampsLong[troundMidi.toString()], tspeed, sec3Cres[i]);
-        } else { //female voices
-          playsamp(femaleSampsLong[troundMidi.toString()], tspeed, sec3Cres[i]);
-        }
-      }
-      //end of event remove
-      if (framect == sec3eventMatrixCres[i][j][6]) {
-        crvFollowData[sec3Cres[i]][0] = false;
-        scene.remove(scene.getObjectByName(sec3eventMatrixCres[i][j][1].name));
-        cresGainNodes[sec3Cres[i]].gain.linearRampToValueAtTime(0.0, actx.currentTime + 0.5);
-      }
-    }
-    //crv follow
-    // var tnewCresEvent = [true, tcresEventMesh, tGoFrm, tTime, tNumPxTilGo, tiGoPx, tOffFrm, tcresEventLength]; //[gate so tempofret is added to scene only once, mesh, goFrame]
-    if (crvFollowData[sec3Cres[i]][0]) {
-      var tcoordsix = Math.floor(scale(crvFollowData[sec3Cres[i]][1], 0.0, 1.0, 0, cresCrvCoords.length));
-      //circ
-      cresCrvFollowers[sec3Cres[i]].setAttributeNS(null, "cx", cresCrvCoords[tcoordsix].x.toString());
-      cresCrvFollowers[sec3Cres[i]].setAttributeNS(null, "cy", cresCrvCoords[tcoordsix].y.toString());
-      //rect
-      var temph = notationCanvasH - cresCrvCoords[tcoordsix].y;
-      cresCrvFollowersRect[sec3Cres[i]].setAttributeNS(null, "y", cresCrvCoords[tcoordsix].y.toString());
-      cresCrvFollowersRect[sec3Cres[i]].setAttributeNS(null, "height", temph.toString());
-    }
-  }
-
-  // // // SECTION 3 - Accel
-  for (var i = 0; i < sec3eventMatrixAccel.length; i++) {
-    for (var j = 0; j < sec3eventMatrixAccel[i].length; j++) {
-      //add the tf to the scene if it is on the runway
-      if (sec3eventMatrixAccel[i][j][1].position.z > (-RUNWAYLENGTH) && sec3eventMatrixAccel[i][j][1].position.z < GOFRETPOSZ) {
-
-        if (sec3eventMatrixAccel[i][j][0]) {
-          sec3eventMatrixAccel[i][j][0] = false;
-          scene.add(sec3eventMatrixAccel[i][j][1]);
-        }
-      }
-      //advance tf if it is not past gofret
-      if (sec3eventMatrixAccel[i][j][1].position.z < GOFRETPOSZ) {
-        sec3eventMatrixAccel[i][j][1].position.z += PXPERFRAME;
-      }
-      //When tf reaches goline, blink and remove
-      if (framect == sec3eventMatrixAccel[i][j][2]) {
-        goFretBlink[sec3Accel[i]] = framect + 9;
-        scene.remove(scene.getObjectByName(sec3eventMatrixAccel[i][j][1].name));
-        var tactMidi = currentPitches[sec3Accel[i]];
-        var troundMidi = limitRange(Math.round(tactMidi), 45, 81);
-        var tspeed = midiToSpeed(troundMidi, tactMidi);
-        if (sec3Accel[i] < 8) { //this is for male voices
-          playsamp(maleSamps[troundMidi.toString()], tspeed, sec3Accel[i]);
-        } else { //female voices
-          playsamp(femaleSamps[troundMidi.toString()], tspeed, sec3Accel[i]);
-        }
-      }
-    }
-  }
-
-  // // // SECTION 4
-  for (var i = 0; i < sec4eventMatrix.length; i++) {
-    for (var j = 0; j < sec4eventMatrix[i].length; j++) {
-      //add the tf to the scene if it is on the runway
-      if (sec4eventMatrix[i][j][1].position.z > (-RUNWAYLENGTH) && sec4eventMatrix[i][j][1].position.z < GOFRETPOSZ) {
-        if (sec4eventMatrix[i][j][0]) {
-          sec4eventMatrix[i][j][0] = false;
-          scene.add(sec4eventMatrix[i][j][1]);
-        }
-      }
-      //advance tf if it is not past gofret
-      if (sec4eventMatrix[i][j][1].position.z < GOFRETPOSZ) {
-        sec4eventMatrix[i][j][1].position.z += PXPERFRAME;
-      }
-      //When tf reaches goline, blink and remove
-      if (framect == sec4eventMatrix[i][j][2]) {
-        goFretBlink[i] = framect + 9;
-        scene.remove(scene.getObjectByName(sec4eventMatrix[i][j][1].name));
-        var tactMidi = currentPitches[i];
-        var troundMidi = limitRange(Math.round(tactMidi), 45, 81);
-        var tspeed = midiToSpeed(troundMidi, tactMidi);
-        if (i < 8) { //this is for male voices
-          playsamp(maleSamps[troundMidi.toString()], tspeed, i);
-        } else { //female voices
-          playsamp(femaleSamps[troundMidi.toString()], tspeed, i);
-        }
-      }
-    }
-  }
-  // NOTATION --------------------------------------------------------- //
-  //REMOVE PREVIOUS NOTATION
-  for (var i = 1; i < pitchChanges.length; i++) {
-    if (pitchChanges[i][1] == framect) {
-      for (var k = 0; k < 4; k++) {
-        var timg = notes[0][roundByStep(pitchChanges[i][2][0][k][1], 0.5)];
-        for (var l = 0; l < pitchContainerDOMs[k].children.length; l++) {
-          pitchContainerDOMs[k].removeChild(pitchContainerDOMs[k].children[l]);
-        }
-        currentPitches[k] = parseFloat(pitchChanges[i][2][0][k][1]);
-      }
-      for (var k = 4; k < 8; k++) {
-        var j = k - 4;
-        var timg = notes[1][roundByStep(pitchChanges[i][2][1][j][1], 0.5)];
-        for (var l = 0; l < pitchContainerDOMs[k].children.length; l++) {
-          pitchContainerDOMs[k].removeChild(pitchContainerDOMs[k].children[l]);
-        }
-        currentPitches[k] = parseFloat(pitchChanges[i][2][1][j][1]);
-      }
-      for (var k = 8; k < 12; k++) {
-        var j = k - 8;
-        var timg = notes[2][roundByStep(pitchChanges[i][2][2][j][1], 0.5)];
-        var tnotCont = document.getElementById(pitchContainers[k].id);
-        for (var l = 0; l < pitchContainerDOMs[k].children.length; l++) {
-          pitchContainerDOMs[k].removeChild(pitchContainerDOMs[k].children[l]);
-        }
-        currentPitches[k] = parseFloat(pitchChanges[i][2][2][j][1]);
-      }
-      for (var k = 12; k < 16; k++) {
-        var j = k - 12;
-        var timg = notes[3][roundByStep(pitchChanges[i][2][3][j][1], 0.5)];
-        var tnotCont = document.getElementById(pitchContainers[k].id);
-        for (var l = 0; l < pitchContainerDOMs[k].children.length; l++) {
-          pitchContainerDOMs[k].removeChild(pitchContainerDOMs[k].children[l]);
-        }
-        currentPitches[k] = parseFloat(pitchChanges[i][2][3][j][1]);
-      }
-      break;
-    }
-  }
-  //ADD NEW NOTATION
-  for (var i = 1; i < pitchChanges.length; i++) {
-    if (pitchChanges[i][1] == framect) {
-      for (var k = 0; k < 4; k++) {
-        var timg = notes[0][roundByStep(pitchChanges[i][2][0][k][1], 0.5)];
-        pitchContainerDOMs[k].appendChild(timg);
-      }
-      for (var k = 4; k < 8; k++) {
-        var j = k - 4;
-        var timg = notes[1][roundByStep(pitchChanges[i][2][1][j][1], 0.5)];
-        pitchContainerDOMs[k].appendChild(timg);
-      }
-      for (var k = 8; k < 12; k++) {
-        var j = k - 8;
-        var timg = notes[2][roundByStep(pitchChanges[i][2][2][j][1], 0.5)];
-        pitchContainerDOMs[k].appendChild(timg);
-      }
-      for (var k = 12; k < 16; k++) {
-        var j = k - 12;
-        var timg = notes[3][roundByStep(pitchChanges[i][2][3][j][1], 0.5)];
-        pitchContainerDOMs[k].appendChild(timg);
-      }
-
-      // ADD CURVES /////
-      //find pitch change before section 2
-      if (drwCrvFollow) {
-        for (var i = 0; i < pitchContainerDOMs.length; i++) {
-          pitchContainerDOMs[i].appendChild(cresSvgCrvs[i]);
-          pitchContainerDOMs[i].appendChild(cresCrvFollowers[i]);
-          pitchContainerDOMs[i].appendChild(cresCrvFollowersRect[i]);
-        }
-      }
-      //find pitch change before section 2
-      if (drwCrvFollowsec3) {
-        for (var i = 0; i < sec3Cres.length; i++) {
-          pitchContainerDOMs[sec3Cres[i]].appendChild(cresSvgCrvs[sec3Cres[i]]);
-          pitchContainerDOMs[sec3Cres[i]].appendChild(cresCrvFollowers[sec3Cres[i]]);
-          pitchContainerDOMs[sec3Cres[i]].appendChild(cresCrvFollowersRect[sec3Cres[i]]);
-        }
-      }
-      break;
-    }
-  }
-  //Draw crv followers only when needed
-  if (framect == (Math.round(sec2start * FRAMERATE) + (leadTime * FRAMERATE))) {
-    drwCrvFollow = true;
-    for (var i = 0; i < pitchContainerDOMs.length; i++) {
-      pitchContainerDOMs[i].appendChild(cresSvgCrvs[i]);
-      pitchContainerDOMs[i].appendChild(cresCrvFollowers[i]);
-      pitchContainerDOMs[i].appendChild(cresCrvFollowersRect[i]);
-    }
-  }
-  //Remove at end of section 2
-  if (framect == (Math.round(endSec2Time * FRAMERATE) + (leadTime * FRAMERATE))) {
-    drwCrvFollow = false;
-    for (var i = 0; i < cresSvgCrvs.length; i++) {
-      document.getElementById(cresSvgCrvs[i].id).remove();
-    }
-    for (var i = 0; i < cresCrvFollowers.length; i++) {
-      document.getElementById(cresCrvFollowers[i].id).remove();
-    }
-    for (var i = 0; i < cresCrvFollowersRect.length; i++) {
-      document.getElementById(cresCrvFollowersRect[i].id).remove();
-    }
-
-  }
-
-  //SECTION 3 CURVE FOLLOWERS
-  if (framect == (Math.round(sec3StartTime * FRAMERATE) + (leadTime * FRAMERATE))) {
-    drwCrvFollowsec3 = true;
-    for (var i = 0; i < sec3Cres.length; i++) {
-      pitchContainerDOMs[sec3Cres[i]].appendChild(cresSvgCrvs[sec3Cres[i]]);
-      pitchContainerDOMs[sec3Cres[i]].appendChild(cresCrvFollowers[sec3Cres[i]]);
-      pitchContainerDOMs[sec3Cres[i]].appendChild(cresCrvFollowersRect[sec3Cres[i]]);
-    }
-  }
-  //Remove at end of section 3
-  if (framect == (Math.round(sec3EndTime * FRAMERATE) + (leadTime * FRAMERATE))) {
-    drwCrvFollowsec3 = false;
-    for (var i = 0; i < sec3Cres.length; i++) {
-      document.getElementById(cresSvgCrvs[sec3Cres[i]].id).remove();
-      document.getElementById(cresCrvFollowers[sec3Cres[i]].id).remove();
-      document.getElementById(cresCrvFollowersRect[sec3Cres[i]].id).remove();
-    }
-  }
-}
-
-var drwCrvFollow = false;
-var drwCrvFollowsec3 = false;
-// DRAW ----------------------------------------------------------------- //
-function draw() {
-  // // GO FRET BLINK TIMER ///////////////////////////////////
-  for (var i = 0; i < goFretBlink.length; i++) {
-    if (framect <= goFretBlink[i]) {
-      goFrets[i][0].material.color = clr_safetyOrange;
-      goFrets[i][0].geometry = goFretBigGeom;
-    } else {
-      goFrets[i][0].material.color = clr_neonGreen;
-      goFrets[i][0].geometry = goFretGeom;
-    }
-  }
-  // RENDER ///////////////////////////////////
-  renderer.render(scene, camera);
-}
-// FUNCTION: mkEventSection ------------------------------------------- //
+//<editor-fold> << GENERATE EVENT MATRICES FROM SCORE DATA FUNCS  >> ------- //
 //FLATTEN EVENTS INTO ONE ARRAY PER PERFORMER
 function mkEventMatrixSec1_singlePart(partNum) {
   var tEventMatrix = [];
@@ -1212,7 +1145,7 @@ function mkEventMatrixSec3Cres_singlePart(partNum) {
   var tcresEventSet = [];
   let sec3CresTimeCodeByPartIXtoRun;
   sec3Cres.forEach((pn, ix) => {
-    if (pn = partNum) {
+    if (pn == partNum) {
       sec3CresTimeCodeByPartIXtoRun = ix;
     }
   });
@@ -1301,106 +1234,135 @@ function mkEventMatrixSec4_singlePart(partNum) {
   }
   return tTempoFretSet;
 }
-// MORE VARIABLES ------------------------------------------------------ //
-var cresGainNodes = [];
-var maleSamps = {
-  45: '/samples/voice_samples_m/45.wav',
-  46: '/samples/voice_samples_m/46.wav',
-  47: '/samples/voice_samples_m/47.wav',
-  48: '/samples/voice_samples_m/48.wav',
-  49: '/samples/voice_samples_m/49.wav',
-  50: '/samples/voice_samples_m/50.wav',
-  51: '/samples/voice_samples_m/51.wav',
-  52: '/samples/voice_samples_m/52.wav',
-  53: '/samples/voice_samples_m/53.wav',
-  54: '/samples/voice_samples_m/54.wav',
-  55: '/samples/voice_samples_m/55.wav',
-  56: '/samples/voice_samples_m/56.wav',
-  57: '/samples/voice_samples_m/57.wav',
-  58: '/samples/voice_samples_m/58.wav',
-  59: '/samples/voice_samples_m/59.wav',
-  60: '/samples/voice_samples_m/60.wav',
-  61: '/samples/voice_samples_m/61.wav',
-  62: '/samples/voice_samples_m/62.wav',
-  63: '/samples/voice_samples_m/63.wav',
-  64: '/samples/voice_samples_m/64.wav'
-}
+//</editor-fold> >> END GENERATE EVENT MATRICES FROM SCORE DATA FUNCS END  ////
 
-var femaleSamps = {
-  57: '/samples/voice_samples_f/57.wav',
-  58: '/samples/voice_samples_f/58.wav',
-  59: '/samples/voice_samples_f/59.wav',
-  60: '/samples/voice_samples_f/60.wav',
-  61: '/samples/voice_samples_f/61.wav',
-  62: '/samples/voice_samples_f/62.wav',
-  63: '/samples/voice_samples_f/63.wav',
-  64: '/samples/voice_samples_f/64.wav',
-  65: '/samples/voice_samples_f/65.wav',
-  66: '/samples/voice_samples_f/66.wav',
-  67: '/samples/voice_samples_f/67.wav',
-  68: '/samples/voice_samples_f/68.wav',
-  69: '/samples/voice_samples_f/69.wav',
-  70: '/samples/voice_samples_f/70.wav',
-  71: '/samples/voice_samples_f/71.wav',
-  72: '/samples/voice_samples_f/72.wav',
-  73: '/samples/voice_samples_f/73.wav',
-  74: '/samples/voice_samples_f/74.wav',
-  75: '/samples/voice_samples_f/75.wav',
-  76: '/samples/voice_samples_f/76.wav',
-  77: '/samples/voice_samples_f/77.wav',
-  78: '/samples/voice_samples_f/78.wav',
-  79: '/samples/voice_samples_f/79.wav',
-  80: '/samples/voice_samples_f/80.wav',
-  81: '/samples/voice_samples_f/81.wav'
+//<editor-fold> << ANIMATION ENGINE >> ------------------------------------- //
+//<editor-fold>  < ANIMATION ENGINE - ENGINE >           //
+function animationEngine(timestamp) {
+  var t_now = new Date(TS.now());
+  t_lt = t_now.getTime();
+  // calcClock(t_lt);
+  delta += t_lt - lastFrameTimeMs;
+  lastFrameTimeMs = t_lt;
+  while (delta >= MSPERFRAME) {
+    update(MSPERFRAME, t_lt);
+    draw();
+    delta -= MSPERFRAME;
+  }
+  if (animation_isGo) requestAnimationFrame(animationEngine);
 }
-
-var maleSampsLong = {
-  45: '/samples/voice_samples_long_m/45.wav',
-  46: '/samples/voice_samples_long_m/46.wav',
-  47: '/samples/voice_samples_long_m/47.wav',
-  48: '/samples/voice_samples_long_m/48.wav',
-  49: '/samples/voice_samples_long_m/49.wav',
-  50: '/samples/voice_samples_long_m/50.wav',
-  51: '/samples/voice_samples_long_m/51.wav',
-  52: '/samples/voice_samples_long_m/52.wav',
-  53: '/samples/voice_samples_long_m/53.wav',
-  54: '/samples/voice_samples_long_m/54.wav',
-  55: '/samples/voice_samples_long_m/55.wav',
-  56: '/samples/voice_samples_long_m/56.wav',
-  57: '/samples/voice_samples_long_m/57.wav',
-  58: '/samples/voice_samples_long_m/58.wav',
-  59: '/samples/voice_samples_long_m/59.wav',
-  60: '/samples/voice_samples_long_m/60.wav',
-  61: '/samples/voice_samples_long_m/61.wav',
-  62: '/samples/voice_samples_long_m/62.wav',
-  63: '/samples/voice_samples_long_m/63.wav',
-  64: '/samples/voice_samples_long_m/64.wav'
+//</editor-fold> END ANIMATION ENGINE - ENGINE END
+//<editor-fold>     < ANIMATION ENGINE - UPDATE >           //
+function update(aMSPERFRAME, currTimeMS) {
+  framect++;
+  // pieceClock += aMSPERFRAME;
+  // pieceClock = pieceClock - clockadj;
+  // ANIMATE ---------------------- >
+  notationObjects.forEach(function(objToAnimate, ix) {
+    objToAnimate.animate();
+  });
 }
+//</editor-fold> END ANIMATION ENGINE - UPDATE END
+//<editor-fold>     < ANIMATION ENGINE - DRAW >             //
+function draw() {
+  // GO FRET BLINK TIMER ///////////////////////////////////
+  partsToRun.forEach((numPartToRun, ptrIX) => {
+    if (framect <= goFretBlink[ptrIX]) {
+      goFrets[ptrIX][0].material.color = clr_safetyOrange;
+      goFrets[ptrIX][0].geometry = goFretBigGeom;
+    } else {
+      goFrets[ptrIX][0].material.color = clr_neonGreen;
+      goFrets[ptrIX][0].geometry = goFretGeom;
+    }
+  });
+  // RENDER ----------------------- >
+  notationObjects.forEach(function(objToRender, ix) {
+    objToRender.renderer.render(objToRender.scene, objToRender.camera);
+  });
+}
+//</editor-fold> END ANIMATION ENGINE - DRAW END    //
+//</editor-fold>  > END ANIMATION ENGINE  /////////////////////////////////////
 
-var femaleSampsLong = {
-  57: '/samples/voice_samples_long_f/57.wav',
-  58: '/samples/voice_samples_long_f/58.wav',
-  59: '/samples/voice_samples_long_f/59.wav',
-  60: '/samples/voice_samples_long_f/60.wav',
-  61: '/samples/voice_samples_long_f/61.wav',
-  62: '/samples/voice_samples_long_f/62.wav',
-  63: '/samples/voice_samples_long_f/63.wav',
-  64: '/samples/voice_samples_long_f/64.wav',
-  65: '/samples/voice_samples_long_f/65.wav',
-  66: '/samples/voice_samples_long_f/66.wav',
-  67: '/samples/voice_samples_long_f/67.wav',
-  68: '/samples/voice_samples_long_f/68.wav',
-  69: '/samples/voice_samples_long_f/69.wav',
-  70: '/samples/voice_samples_long_f/70.wav',
-  71: '/samples/voice_samples_long_f/71.wav',
-  72: '/samples/voice_samples_long_f/72.wav',
-  73: '/samples/voice_samples_long_f/73.wav',
-  74: '/samples/voice_samples_long_f/74.wav',
-  75: '/samples/voice_samples_long_f/75.wav',
-  76: '/samples/voice_samples_long_f/76.wav',
-  77: '/samples/voice_samples_long_f/77.wav',
-  78: '/samples/voice_samples_long_f/78.wav',
-  79: '/samples/voice_samples_long_f/79.wav',
-  80: '/samples/voice_samples_long_f/80.wav',
-  81: '/samples/voice_samples_long_f/81.wav'
+
+
+
+// To jump to different time in piece
+function pieceClockAdjust(time) { //if time has passed
+  let newTime = time + leadTime;
+  var tNewFrame = newTime * FRAMERATE;
+  framect = Math.round(tNewFrame);
+  //Are Curves on scene?
+  if (newTime >= sec2start && newTime < endSec2Time) { //curves are on scene
+    notationObjects.forEach((no, noix) => {
+      no.crv.setAttributeNS(null, "transform", "translate( 0, -3)");
+      no.crvFollowCirc.setAttributeNS(null, "transform", "translate( 0, -3)");
+      no.crvFollowRect.setAttributeNS(null, "x", '0');
+    });
+  } else if (newTime >= sec3StartTime && newTime < sec3EndTime) { //some curves are on scene
+    sec3Cres.forEach((sec3CresPartNum) => {
+      notationObjects.forEach((no, noix) => {
+        if (sec3CresPartNum == no.ix) {
+          no.crv.setAttributeNS(null, "transform", "translate( 0, -3)");
+          no.crvFollowCirc.setAttributeNS(null, "transform", "translate( 0, -3)");
+          no.crvFollowRect.setAttributeNS(null, "x", '0');
+        }
+      });
+    });
+  } else { //curves are off scene
+    notationObjects.forEach((no, noix) => {
+      no.crv.setAttributeNS(null, "transform", "translate( 1000, -3)");
+      no.crvFollowCirc.setAttributeNS(null, "transform", "translate(1000, -3)");
+      no.crvFollowRect.setAttributeNS(null, "x", '1000');
+    });
+  }
+  //MOVE MESHES
+  //Sec 1
+  for (var i = 0; i < partsToRun_eventMatrix.length; i++) {
+    for (var j = 0; j < partsToRun_eventMatrix[i].length; j++) {
+
+      partsToRun_eventMatrix[i][j][1].position.z += (tNewFrame * PXPERFRAME);
+
+    }
+  }
+  //Sec 2
+  for (var i = 0; i < partsToRun_sec2eventMatrix.length; i++) {
+    for (var j = 0; j < partsToRun_sec2eventMatrix[i].length; j++) {
+
+      partsToRun_sec2eventMatrix[i][j][1].position.z += (tNewFrame * PXPERFRAME);
+
+    }
+  }
+  //Sec 3
+  //hocket
+  for (var i = 0; i < partsToRun_sec3eventMatrixHocket.length; i++) {
+    for (var j = 0; j < partsToRun_sec3eventMatrixHocket[i].length; j++) {
+
+      partsToRun_sec3eventMatrixHocket[i][j][1].position.z += (tNewFrame * PXPERFRAME);
+
+    }
+  }
+  //cres
+  for (var i = 0; i < partsToRun_sec3eventMatrixCres.length; i++) {
+    for (var j = 0; j < partsToRun_sec3eventMatrixCres[i].length; j++) {
+
+      partsToRun_sec3eventMatrixCres[i][j][1].position.z += (tNewFrame * PXPERFRAME);
+
+    }
+  }
+  //Accel
+  for (var i = 0; i < partsToRun_sec3eventMatrixAccel.length; i++) {
+    for (var j = 0; j < partsToRun_sec3eventMatrixAccel[i].length; j++) {
+
+      partsToRun_sec3eventMatrixAccel[i][j][1].position.z += (tNewFrame * PXPERFRAME);
+
+    }
+  }
+  //Section 4
+  for (var i = 0; i < partsToRun_sec4eventMatrix.length; i++) {
+    for (var j = 0; j < partsToRun_sec4eventMatrix[i].length; j++) {
+
+      partsToRun_sec4eventMatrix[i][j][1].position.z += (tNewFrame * PXPERFRAME);
+
+    }
+  }
 }
