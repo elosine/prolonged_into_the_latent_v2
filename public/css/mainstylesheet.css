@@ -52,6 +52,26 @@ body {
   transition: all 0.3s;
 }
 
+.btn-ind_off{
+  background: #cb4e4e;
+  color: #fff;
+  box-shadow: 0 6px #ab3c3c;
+  border-radius: 5px;
+  padding: 6px 6px;
+  -webkit-transition: none;
+  -moz-transition: none;
+  transition: none;
+}
+
+.btn-ind_on{
+  box-shadow: 0 8px #17954c;
+  background: #24b662;
+  color: black;
+  top: -2px;
+  padding: 6px 6px;
+  border-radius: 5px;
+}
+
 /* Button 1 */
 .btn-1 {
   background: #cb4e4e;

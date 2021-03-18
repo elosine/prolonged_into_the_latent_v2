@@ -81,13 +81,14 @@ var svgXlink = 'http://www.w3.org/1999/xlink';
 var maxNumOfPlayers = 16;
 var urlArgsDict;
 let scoreCtrlPanel;
+let readyBtns = [];
 //</editor-fold> END GLOBAL VARS - MISC END
 //<editor-fold>  < GLOBAL VARS - AUDIO >                   //
 let actx;
 let tonegain;
 let tone;
 let audResBtn = document.getElementById("audStBtn");
-audResBtn.addEventListener("click", function(){
+audResBtn.addEventListener("click", function() {
   actx.resume();
   audResBtn.parentNode.removeChild(audResBtn);
 });
@@ -101,6 +102,7 @@ let stopBtn_isActive = false;
 let pauseBtn_isActive = false;
 let animation_isGo = true;
 let makeControlPanel = false;
+let readyBtn_isActive = true;
 //</editor-fold> END GLOBAL VARS - GATES END
 //<editor-fold>  < GLOBAL VARS - TIMESYNC ENGINE >       //
 var tsServer;
@@ -246,9 +248,26 @@ function init() {
   // Does the page have score controls?
   if (urlArgsDict.controls == 'yes') makeControlPanel = true;
   // Run loadScoreData(), everything else runs in this function as it is asynchronous
-  //INIT AUDIO
+
   initAudio();
   loadScoreData();
+
+  //<editor-fold> << READY PANEL >> ---------------------------------------- //
+  if (!makeControlPanel) {
+    let readyPanel = mkCtrlPanel('readyPanel', 69, 69, 'Ready Panel', ['right-top', '0px', '0px', 'none'], 'xs');
+    let readyBtnFunc = function() {
+      if (readyBtn_isActive) {
+        readyBtn_isActive = false;
+        readyBtn.className = 'btn btn-1_inactive';
+        readyPanel.panel.smallify();
+        SOCKET.emit('pitl_ready', {
+          playerNumReady: partsToRun[0]
+        });
+      }
+    }
+    let readyBtn = mkButton(readyPanel.canvas, 'imreadybtn', 55, 45, 0, 0, 'Ready?', 12, readyBtnFunc);
+  }
+  //</editor-fold> >> READY PANEL  ////////////////////////////////////////////
 }
 //</editor-fold> END INIT() END
 //<editor-fold>  < LOAD SCORE DATA FUNCTION >            //
@@ -345,7 +364,7 @@ async function loadScoreData() {
 
   // MAKE CONTROL PANEL - if specified in URLargs
   if (makeControlPanel) {
-    scoreCtrlPanel = mkCtrlPanel_ctrl('scoreCtrlPanel', 70, 186, 'Ctrl Panel', ['left-top', '0px', '0px', 'none'], 'xs');
+    scoreCtrlPanel = mkCtrlPanel_ctrl('scoreCtrlPanel', 85, 507, 'Ctrl Panel', ['left-top', '0px', '0px', 'none'], 'xs');
   }
 
 
@@ -1284,9 +1303,24 @@ function mkCtrlPanel_ctrl(id, w, h, title, posArr, headerSize) {
   panelObj['stopBtn'] = stopBtn;
 
   //</editor-fold> END STOP BUTTON END
+  //<editor-fold>  < CONTROL PANEL - READY INDICATORS >         //
+  for (let i = 0; i < 16; i++) {
+    let btnX;
+    if (i < 8) {
+      btnX = 0
+    } else {
+      btnX = 37
+    }
+    let t_btn = mkButton(canvas, 'readyBtn' + i.toString(), 33, 27, 177 + (40 * (i % 8)), btnX, 'P' + i.toString(), 11, function() {});
+    t_btn.className = 'btn btn-ind_off';
+    readyBtns.push(t_btn);
+  }
+  //</editor-fold> END READY INDICATORS END
   return panelObj;
 }
 //</editor-fold> >> CONTROL PANEL  ////////////////////////////////////////////
+
+
 
 //<editor-fold> << SOCKET IO >> -------------------------------------------- //
 // SOCKET IO - START PIECE ------ >
@@ -1376,14 +1410,22 @@ SOCKET.on('pitl_pauseBroadcast', function(data) {
   }
 });
 
-
 // SOCKET IO - STOP ------------- >
 SOCKET.on('pitl_stopBroadcast', function(data) {
   location.reload();
 });
 
-//</editor-fold>  > END SOCKET IO  ////////////////////////////////////////////
+// SOCKET IO - READY BUTTONS ------------- >
+SOCKET.on('pitl_readyBroadcast', function(data) {
+  let playerNumReady = data.playerNumReady;
+  if (makeControlPanel) {
+    readyBtns[playerNumReady].className = 'btn btn-ind_on';
+  };
+});
 
+
+
+//</editor-fold>  > END SOCKET IO  ////////////////////////////////////////////
 
 //<editor-fold> << FUNC TO LOAD INITIAL NOTATION FOR ALL PARTS  >> --------- //
 // var ranges = [[40, 60],[48, 67],[53, 74],[60, 81]];
@@ -1713,324 +1755,6 @@ function calcDisplayClock(pieceEpochTime) {
 //</editor-fold> END UTILITIES - CLOCK END
 
 
-
-
-
-
-
-
-
-/*
-
-let newStartTime = data.newStartTime + leadTime;
-clockAdj = newStartTime;
-var frameAdj = Math.round(newStartTime * FRAMERATE);
-framect = frameAdj;
-scoreCtrlPanel.timeField.disabled = 'true';
-advanceEvents(partsToRun_eventMatrix);
-// advanceEvents(partsToRun_sec2eventMatrix);
-// advanceEvents(partsToRun_sec3eventMatrixHocket);
-// advanceEvents(partsToRun_sec3eventMatrixCres);
-// advanceEvents(partsToRun_sec3eventMatrixAccel);
-// advanceEvents(partsToRun_sec4eventMatrix);
-// removeEvents(partsToRun_sec2eventMatrix);
-// removeEvents(partsToRun_sec4eventMatrix);
-
-
-
-// let partsToRun_eventMatrix = [];
-// let partsToRun_sec2eventMatrix = [];
-// let partsToRun_sec3eventMatrixHocket = [];
-// let partsToRun_sec3eventMatrixCres = [];
-// let partsToRun_sec3eventMatrixAccel = [];
-// let partsToRun_sec4eventMatrix = [];
-
-// Get rid of the events in the past & advance the position.z of the events in the future
-// function advanceEvents(partsToRun_evtMtrxs) {
-
-
-  let eventMatrix = partsToRun_evtMtrxs;
-  for (var i = 0; i < eventMatrix.length; i++) {
-    for (var j = 0; j < eventMatrix[i].length; j++) {
-      //move each event
-      eventMatrix[i][j][1].position.z += (frameAdj * PXPERFRAME);
-    }
-  }
-
-
-
-// }
-
-/*
-
-//Clear events that have already passed
-    notationObjects.forEach(function(it, ix) {
-      var tar1 = [];
-      tar1.push(ix);
-      var tar2 = [];
-      var t_eventMatrix = partsToRunEvents[ix];
-      for (var i = 0; i < t_eventMatrix.length; i++) {
-        var t_mesh = t_eventMatrix[i][1];
-        var t_time = t_eventMatrix[i][3];
-        //if they had already passed remove the meshes
-        if (t_time > clockAdj) {
-          //need to adjust the remaining event meshes pos.y
-          //because animator uses this to advance events
-          t_mesh.position.y = t_mesh.position.y - (RUNWAY_PXPERFRAME * frameAdj);
-        } else {
-          var obj2Rmv = it.scene.getObjectByName(t_mesh.name);
-          it.conveyor.remove(obj2Rmv);
-          //Collect indexes of events to remove and remove later
-          tar2.push(i);
-        }
-      }
-      tar1.push(tar2);
-      eventsToRmv.push(tar1);
-    });
-    //Remove all pased events from eventsMatrix array
-    eventsToRmv.forEach((it, ix) => {
-      var i1 = it[0];
-      var itemsToRmv = it[1];
-      for (var i = itemsToRmv.length - 1; i >= 0; i--) {
-        partsToRunEvents[i1].splice(itemsToRmv[i], 1);
-      }
-    });
-
-
-
-
-
-
-      //Sec 1
-      for (var i = 0; i < eventMatrix.length; i++) {
-        for (var j = 0; j < eventMatrix[i].length; j++) {
-          //move each event
-          eventMatrix[i][j][1].position.z += (tNewFrame * PXPERFRAME);
-        }
-      }
-
-
-
-
-*/
-
-
-
-
-
-/*
-  //Sec 2
-  for (var i = 0; i < sec2eventMatrix.length; i++) {
-    for (var j = 0; j < sec2eventMatrix[i].length; j++) {
-      //move each event
-      sec2eventMatrix[i][j][1].position.z += (tNewFrame * PXPERFRAME);
-    }
-  }
-  //Sec 3
-  //hocket
-  for (var i = 0; i < sec3eventMatrixHocket.length; i++) {
-    for (var j = 0; j < sec3eventMatrixHocket[i].length; j++) {
-      sec3eventMatrixHocket[i][j][1].position.z += (tNewFrame * PXPERFRAME);
-    }
-  }
-  //cres
-  for (var i = 0; i < sec3eventMatrixCres.length; i++) {
-    for (var j = 0; j < sec3eventMatrixCres[i].length; j++) {
-      sec3eventMatrixCres[i][j][1].position.z += (tNewFrame * PXPERFRAME);
-    }
-  }
-  //Accel
-  for (var i = 0; i < sec3eventMatrixAccel.length; i++) {
-    for (var j = 0; j < sec3eventMatrixAccel[i].length; j++) {
-      sec3eventMatrixAccel[i][j][1].position.z += (tNewFrame * PXPERFRAME);
-    }
-  }
-  //Section 4
-  for (var i = 0; i < sec4eventMatrix.length; i++) {
-    for (var j = 0; j < sec4eventMatrix[i].length; j++) {
-      sec4eventMatrix[i][j][1].position.z += (tNewFrame * PXPERFRAME);
-    }
-  }
-}
-
-*/
-
-
-/*
-    // Find right pitches
-    //// Remove Current Pitches
-    notationObjects.forEach((no, ptrIX) => {
-      for (var l = 0; l < no.notationCont.children.length; l++) {
-        no.notationCont.removeChild(no.notationCont.children[l]);
-      }
-    });
-    for (var i = 1; i < pitchChanges.length; i++) {
-      if (pitchChanges[i][1] > frameAdj) {
-        let currPcIx = i - 1;
-        partsToRun.forEach((partNum, ptrIX) => {
-          if (partNum < 4) {
-            currentPitches[ptrIX] = parseFloat(pitchChanges[currPcIx][2][0][ptrIX][1]);
-            notationObjects[ptrIX].currentPitch = currentPitches[ptrIX];
-            var timg = notes[0][roundByStep(pitchChanges[currPcIx][2][0][partNum][1], 0.5)];
-            notationObjects[ptrIX].notationCont.appendChild(timg);
-          } else if (partNum >= 4 && partNum < 8) {
-            var j = partNum - 4;
-            currentPitches[ptrIX] = parseFloat(pitchChanges[currPcIx][2][1][j][1]);
-            notationObjects[ptrIX].currentPitch = currentPitches[ptrIX];
-            var timg = notes[1][roundByStep(pitchChanges[currPcIx][2][1][j][1], 0.5)];
-            notationObjects[ptrIX].notationCont.appendChild(timg);
-          } else if (partNum >= 8 && partNum < 12) {
-            var j = partNum - 8;
-            currentPitches[ptrIX] = parseFloat(pitchChanges[currPcIx][2][2][j][1]);
-            notationObjects[ptrIX].currentPitch = currentPitches[ptrIX];
-            var timg = notes[2][roundByStep(pitchChanges[currPcIx][2][2][j][1], 0.5)];
-            notationObjects[ptrIX].notationCont.appendChild(timg);
-          } else if (partNum >= 12 && partNum < 16) {
-            var j = partNum - 12;
-            currentPitches[ptrIX] = parseFloat(pitchChanges[currPcIx][2][3][j][1]);
-            notationObjects[ptrIX].currentPitch = currentPitches[ptrIX];
-            var timg = notes[3][roundByStep(pitchChanges[currPcIx][2][3][j][1], 0.5)];
-            notationObjects[ptrIX].notationCont.appendChild(timg);
-          }
-        });
-      }
-    }
-
-
-    //Are Curves on scene?
-    if (newStartTime >= sec2start && newStartTime < endSec2Time) { //curves are on scene
-      notationObjects.forEach((no, noix) => {
-        no.crv.setAttributeNS(null, "transform", "translate( 0, -3)");
-        no.crvFollowCirc.setAttributeNS(null, "transform", "translate( 0, -3)");
-        no.crvFollowRect.setAttributeNS(null, "x", '0');
-      });
-    } else if (newStartTime >= sec3StartTime && newStartTime < sec3EndTime) { //some curves are on scene
-      sec3Cres.forEach((sec3CresPartNum) => {
-        notationObjects.forEach((no, noix) => {
-          if (sec3CresPartNum == no.ix) {
-            no.crv.setAttributeNS(null, "transform", "translate( 0, -3)");
-            no.crvFollowCirc.setAttributeNS(null, "transform", "translate( 0, -3)");
-            no.crvFollowRect.setAttributeNS(null, "x", '0');
-          }
-        });
-      });
-    } else { //curves are off scene
-      notationObjects.forEach((no, noix) => {
-        no.crv.setAttributeNS(null, "transform", "translate( 1000, -3)");
-        no.crvFollowCirc.setAttributeNS(null, "transform", "translate(1000, -3)");
-        no.crvFollowRect.setAttributeNS(null, "x", '1000');
-      });
-    }
-
-
-    // eventMatrix, sec2eventMatrix, sec3eventMatrixHocket, sec3eventMatrixCres, sec3eventMatrixAccel, sec4eventMatrix;
-    // let sec3HocketPlayers, sec3Cres, sec3Accel;
-    // let sec2start, endSec2Time, sec3StartTime, sec3EndTime;
-    // let partsToRun_eventMatrix = [];
-    // let partsToRun_sec2eventMatrix = [];
-    // let partsToRun_sec3eventMatrixHocket = [];
-    // let partsToRun_sec3eventMatrixCres = [];
-    // let partsToRun_sec3eventMatrixAccel = [];
-    // let partsToRun_sec4eventMatrix = [];
-    // let partsToRun = [];
-    // [true, tempTempoFret, tGoFrm, tTime, tNumPxTilGo, tiGoPx]
-
-    clearEventMatrix(partsToRun_eventMatrix);
-    clearEventMatrix(partsToRun_sec2eventMatrix);
-    clearEventMatrixSec3(partsToRun_sec3eventMatrixHocket);
-    clearEventMatrixSec3(partsToRun_sec3eventMatrixCres);
-    clearEventMatrixSec3(partsToRun_sec3eventMatrixAccel);
-    clearEventMatrix(partsToRun_sec4eventMatrix);
-
-    //Function to clear events and advance MESHES
-    //Run this for each section of the piece
-    function clearEventMatrix(oneEvtSectionEvtMtrx) {
-      let eventsToRmv = [];
-      notationObjects.forEach(function(no, ptrIX) {
-        var tar1 = []; //temp array to push to array of items to remove
-        tar1.push(ptrIX);
-        var tar2 = [];
-        var t_eventMatrix = oneEvtSectionEvtMtrx[ptrIX];
-        for (var evtIx = 0; evtIx < t_eventMatrix.length; evtIx++) {
-          var t_mesh = t_eventMatrix[evtIx][1];
-          var t_time = t_eventMatrix[evtIx][3];
-          //if they had already passed remove the meshes
-          if (t_time > newStartTime) {
-            //need to adjust the remaining event meshes pos.y
-            //because animator uses this to advance events
-            t_mesh.position.y = t_mesh.position.y - (PXPERFRAME * frameAdj);
-          } else {
-            var obj2Rmv = no.scene.getObjectByName(t_mesh.name);
-            no.scene.remove(obj2Rmv);
-            //Collect indexes of events to remove and remove later
-            tar2.push(evtIx);
-          }
-        }
-        tar1.push(tar2);
-        eventsToRmv.push(tar1);
-      });
-      //Remove all pased events from eventsMatrix array
-      eventsToRmv.forEach((it, ix) => {
-        var i1 = it[0];
-        var itemsToRmv = it[1];
-        for (var i = itemsToRmv.length - 1; i >= 0; i--) {
-          oneEvtSectionEvtMtrx[i1].splice(itemsToRmv[i], 1);
-        }
-      });
-
-    }
-
-    function clearEventMatrixSec3(secMtrxCollection) {
-      if (secMtrxCollection.length > 0) {
-
-        let playerNum = secMtrxCollection[0][0];
-        let evtMtrxAllParts = secMtrxCollection[0][1];
-        let eventsToRmv = [];
-        let ptrIX;
-        //get ptrIX
-        notationObjects.forEach((no, ptrIx2) => {
-          if (no.ix == playerNum) ptrIX = ptrIx2;
-        });
-        evtMtrxAllParts.forEach(function(mtrx, ix) {
-          var tar1 = []; //temp array to push to array of items to remove
-          tar1.push(ix);
-          var tar2 = [];
-          // for (var evtIx = 0; evtIx < mtrx.length; evtIx++) {
-          var t_mesh = mtrx[1];
-          var t_time = mtrx[3];
-          //if they had already passed remove the meshes
-          if (t_time > newStartTime) {
-            //need to adjust the remaining event meshes pos.y
-            //because animator uses this to advance events
-            t_mesh.position.y = t_mesh.position.y - (PXPERFRAME * frameAdj);
-          } else {
-            var obj2Rmv = notationObjects[ptrIX].scene.getObjectByName(t_mesh.name);
-            notationObjects[ptrIX].scene.remove(obj2Rmv);
-            //Collect indexes of events to remove and remove later
-            tar2.push(ix);
-          }
-          // }
-          tar1.push(tar2);
-          eventsToRmv.push(tar1);
-        });
-        //Remove all pased events from eventsMatrix array
-        eventsToRmv.forEach((it, ix) => {
-          var i1 = it[0];
-          var itemsToRmv = it[1];
-          for (var i = itemsToRmv.length - 1; i >= 0; i--) {
-            mtrx.splice(itemsToRmv[i], 1);
-          }
-        });
-
-
-      }
-
-    }
-
-
-
-
-*/
 
 
 

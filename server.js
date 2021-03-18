@@ -16,7 +16,7 @@ server.listen(PORT, () => console.log(`Listening on ${ PORT }`));
 app.use('/timesync', timesyncServer.requestHandler);
 //<editor-fold> << SOCKET IO >> -------------------------------------------- //
 io.on('connection', function(socket) {
-  //<editor-fold> << sf003 >> --------------------------------------------- //
+  //<editor-fold> << pitl >> --------------------------------------------- //
   //<editor-fold>  < START PIECE >                         //
   socket.on('pitl_startpiece', function(data) {
     socket.broadcast.emit('pitl_startpiecebroadcast', {});
@@ -52,6 +52,17 @@ io.on('connection', function(socket) {
     });
   });
   //</editor-fold> END PAUSE END
-  //</editor-fold> >> END sf003 END  //////////////////////////////////////////
+  //<editor-fold>  < READY >                               //
+  socket.on('pitl_ready', function(data) {
+    socket.emit('pitl_readyBroadcast', {
+      playerNumReady: data.playerNumReady,
+    });
+    socket.broadcast.emit('pitl_readyBroadcast', {
+      playerNumReady: data.playerNumReady,
+    });
+  });
+  //</editor-fold> END READY END
+
+  //</editor-fold> >> END pitl END  //////////////////////////////////////////
 }); // End Socket IO
 //</editor-fold> >> END SOCKET IO END  ////////////////////////////////////////
