@@ -644,11 +644,12 @@ function mkSpan(canvas, id, w, h, top, left, text, fontSize, color) {
 // </editor-fold>      END MAKE SPAN /////////////////////////////
 
 
-function mkClockPanel(clockDiv) {
+function mkClockPanel(clockDiv, a_pos) {
   let tpanel;
+  let pos = a_pos || 'right-top';
   // Clock Panel
   jsPanel.create({
-    position: 'right-top',
+    position: pos,
     id: "clockPanel",
     contentSize: "65 20",
     header: 'auto-show-hide',

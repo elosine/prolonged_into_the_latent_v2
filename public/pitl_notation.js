@@ -7,8 +7,13 @@ const PXPERFRAME = PXPERSEC / FRAMERATE;
 var framect = 0;
 var delta = 0.0;
 var lastFrameTimeMs = 0.0;
-var pieceClock = 0.0;
-var clockadj = 0.0;
+var leadTime = 8.0;
+let pieceTimeAdjustment = 0;
+let pieceStartTime_epochTime;
+let displayClock_TimeMS, displayClock_TimeSec, displayClock_TimeMin, displayClock_TimeHrs;
+let clockAdj = 0;
+let pauseState = 0;
+let pausedTime = 0;
 //</editor-fold> END GLOBAL VARS - TIMING END
 //<editor-fold>  < GLOBAL VARS - COLORS >                 //
 var clr_neonMagenta = new THREE.Color("rgb(255, 21, 160)");
@@ -17,7 +22,7 @@ var clr_limegreen = new THREE.Color("rgb(153, 255, 0)");
 var clr_safetyOrange = new THREE.Color("rgb(255, 103, 0)");
 var fretClr = [clr_limegreen, clr_neonMagenta];
 //</editor-fold> END GLOBAL VARS - COLORS END
-//<editor-fold>  < GLOBAL VARS - SCENE >                 //
+//<editor-fold>  < GLOBAL VARS - SCENE >                  //
 const CANVASW = 113;
 const CANVASH = 450;
 const RUNWAYLENGTH = 1070;
@@ -42,37 +47,46 @@ for (var i = 0; i < numTracks; i++) {
 }
 var goFrets = []; //[goFret, goFretMatl]
 //</editor-fold> END GLOBAL VARS - SCENE END
-// NOTATION SVGS ////////////////////////////////////////
-var svgXlink = 'http://www.w3.org/1999/xlink';
+//<editor-fold>  < GLOBAL VARS - NOTATION & CURVES >      //
 var pitchContainers = [];
 var pitchContainerDOMs = [];
 var notes;
 var notationCanvasH = CRV_H;
+var currentPitches = [];
+var crvFollowData = [];
+let cresDurs;
+let pitchChanges;
 // CRESCENDOS //////////////////
 var cresCrvCoords = plot(function(x) {
   return Math.pow(x, 3);
 }, [0, 1, 0, 1], GOFRETWIDTH, notationCanvasH);
+//</editor-fold> END GLOBAL VARS - NOTATION & CURVES END
+//<editor-fold>  < GLOBAL VARS - PARTS & SECTIONS >       //
 let timeCodeByPart, sec2TimeCodeByPart, sec3HocketTimeCode, sec3CresTimeCodeByPart, sec3AccelTimeCode, sec4TimeCode;
 let eventMatrix, sec2eventMatrix, sec3eventMatrixHocket, sec3eventMatrixCres, sec3eventMatrixAccel, sec4eventMatrix;
+let sec3HocketPlayers, sec3Cres, sec3Accel;
+let sec2start, endSec2Time, sec3StartTime, sec3EndTime;
 let partsToRun_eventMatrix = [];
 let partsToRun_sec2eventMatrix = [];
 let partsToRun_sec3eventMatrixHocket = [];
 let partsToRun_sec3eventMatrixCres = [];
 let partsToRun_sec3eventMatrixAccel = [];
 let partsToRun_sec4eventMatrix = [];
-// MISC ////////////////////////////////////////
-const SVG_NS = "http://www.w3.org/2000/svg";
-var currentPitches = [];
-var maxNumOfPlayers = 16;
-var leadTime = 8.0;
-let cresDurs, sec3HocketPlayers, sec3Cres, sec3Accel, pitchChanges;
-let sec2start, endSec2Time, sec3StartTime, sec3EndTime;
-var urlArgsDict;
 let partsToRun = [];
 let notationObjects = [];
-var crvFollowData = [];
-let makeControlPanel = false;
+//</editor-fold> END GLOBAL VARS - PARTS & SECTIONS END
+//<editor-fold>  < GLOBAL VARS - MISC >                   //
+const SVG_NS = "http://www.w3.org/2000/svg";
+var svgXlink = 'http://www.w3.org/1999/xlink';
+var maxNumOfPlayers = 16;
+var urlArgsDict;
 let scoreCtrlPanel;
+//</editor-fold> END GLOBAL VARS - MISC END
+//<editor-fold>  < GLOBAL VARS - AUDIO >                   //
+let actx;
+let tonegain;
+let tone;
+//</editor-fold> END GLOBAL VARS - AUDIO END
 //<editor-fold>  < GLOBAL VARS - GATES >                 //
 var piece_hasStarted = false;
 let piece_canStart = true;
@@ -80,6 +94,7 @@ let startBtn_isActive = true;
 let stopBtn_isActive = false;
 let pauseBtn_isActive = false;
 let animation_isGo = true;
+let makeControlPanel = false;
 //</editor-fold> END GLOBAL VARS - GATES END
 //<editor-fold>  < GLOBAL VARS - TIMESYNC ENGINE >       //
 var tsServer;
@@ -201,7 +216,7 @@ var notesMidiDict = {
 //</editor-fold> >> END GLOBAL VARIABLES END  /////////////////////////////////
 
 //<editor-fold> << START UP >> --------------------------------------------- //
-//<editor-fold> << START UP WORKFLOW >> ------------------------------------ //
+//<editor-fold> << START UP WORKFLOW >> ---------------- //
 /*
 1) init() is run from the html page->body <body onload='init();'>
 2) init() runs getUrlArgs() to get args from URL
@@ -211,6 +226,7 @@ var notesMidiDict = {
 ///////// ---> everything else runs in this function as it is asynchronous
 6) loadScoreData() -> Make Control Panel
 7) Control Panel Start Button runs startPiece()
+8) Audio is loaded in the SOCKET 'pitl_startpiecebroadcast' because for chrome it webaudio can only be created by a user gesture
 */
 //</editor-fold> >> END START UP WORKFLOW  ////////////////////////////////////
 //<editor-fold>  < INIT() >                              //
@@ -227,7 +243,6 @@ function init() {
   loadScoreData();
 }
 //</editor-fold> END INIT() END
-
 //<editor-fold>  < LOAD SCORE DATA FUNCTION >            //
 async function loadScoreData() {
   retrivedFileDataObj = await retriveFile('savedScoreData/pitchChanges.txt');
@@ -289,6 +304,8 @@ async function loadScoreData() {
   //Generate event matrices
   partsToRun.forEach((numPartToRun, ix) => {
     loadInitialNotation(numPartToRun); //loads initial pitches
+    //load initial pitch into play tone button
+    notationObjects[ix].currentPitch = currentPitches[ix][1];
     partsToRun_eventMatrix.push(mkEventMatrixSec1_singlePart(numPartToRun));
     partsToRun_sec2eventMatrix.push(mkEventMatrixSec2_singlePart(numPartToRun));
     sec3HocketPlayers.forEach((hp) => {
@@ -318,14 +335,11 @@ async function loadScoreData() {
     partsToRun_sec4eventMatrix.push(mkEventMatrixSec4_singlePart(numPartToRun));
   });
 
-
-
-
-
   // MAKE CONTROL PANEL - if specified in URLargs
   if (makeControlPanel) {
-    scoreCtrlPanel = mkCtrlPanel_ctrl('scoreCtrlPanel', 70, 163, 'Ctrl Panel', ['left-top', '0px', '0px', 'none'], 'xs');
+    scoreCtrlPanel = mkCtrlPanel_ctrl('scoreCtrlPanel', 70, 186, 'Ctrl Panel', ['left-top', '0px', '0px', 'none'], 'xs');
   }
+
 
 
   //helper function for async file retrevial
@@ -344,56 +358,51 @@ async function loadScoreData() {
 
 }
 //</editor-fold> END LOAD SCORE DATA FUNCTION END
-
+//<editor-fold>  < START PIECE FUNCTION >                //
 function startPiece() {
   if (!piece_hasStarted) {
     piece_hasStarted = true;
     var t_now = new Date(TS.now());
-    lastFrameTimeMs = t_now.getTime();
-    // epochStartTime = lastFrameTimeMs;
+    let tsNow_epochTime = t_now.getTime();
+    lastFrameTimeMs = tsNow_epochTime;
+    pieceStartTime_epochTime = tsNow_epochTime;
     requestAnimationFrame(animationEngine);
-    // pieceClockAdjust(sec3StartTime - 5);
-    // getCresStartTimes();
     // initAudio();
   }
 }
+//</editor-fold> END START PIECE FUNCTION END
 //</editor-fold> >> END START UP END  /////////////////////////////////////////
 
 //<editor-fold> << AUDIO >> ------------------------------------------------ //
 //FUNCTION initAudio ------------------------------------------------------ //
 function initAudio() {
+  // Audio Context
   actx = new(window.AudioContext || window.webkitAudioContext)();
-  for (var i = 0; i < maxNumOfPlayers; i++) {
-    var tgain = actx.createGain();
-    tgain.gain.setValueAtTime(mainVoiceAmp, actx.currentTime);
-    tgain.connect(actx.destination);
-    cresGainNodes.push(tgain);
-  }
+  // Gain Node
+  tonegain = actx.createGain();
+  tonegain.gain.setValueAtTime(0, actx.currentTime);
+  tonegain.connect(actx.destination);
+  tonegain.gain.linearRampToValueAtTime(0.0, actx.currentTime + 0.1);
+  // Sine Wave Oscillator
+  tone = actx.createOscillator();
+  tone.frequency.value = 440;
+  tone.type = 'sine';
+  tone.start();
+  tone.connect(tonegain);
 }
-//FUNCTION playsamp ------------------------------------------------------ //
-function playsamp(path, rate, gainix) {
-  var source = actx.createBufferSource();
-  var request = new XMLHttpRequest();
-  request.open('GET', path, true);
-  request.responseType = 'arraybuffer';
-  request.onload = function() {
-    actx.decodeAudioData(request.response, function(buffer) {
-      source.buffer = buffer;
-      cresGainNodes[gainix].gain.setValueAtTime(mainVoiceAmp, actx.currentTime);
-      source.connect(cresGainNodes[gainix]);
-      source.loop = false;
-      source.playbackRate.value = rate;
-      source.start();
-    }, function(e) {
-      console.log('Audio error! ', e);
-    });
-  }
-  request.send();
+//FUNCTION playTone ------------------------------------------------------ //
+function playTone(freq) {
+  tone.frequency.value = freq;
+  tonegain.gain.setValueAtTime(0, actx.currentTime + 0.05);
+  tonegain.gain.linearRampToValueAtTime(0.15, actx.currentTime + 0.15);
+  tonegain.gain.setValueAtTime(0.15, actx.currentTime + 0.2);
+  tonegain.gain.linearRampToValueAtTime(0, actx.currentTime + 0.55);
 }
 //</editor-fold> >> END AUDIO END  ////////////////////////////////////////////
 
 // <editor-fold>  <<<< NOTATION OBJECT >>>> -------------------------------- //
 function mkNotationObject(ix, ptrIX, w, h, len, placementOrder) {
+  // <editor-fold>  <<<< VARS >>>> ----------------- //
   var notationObj = {};
   notationObj['ix'] = ix;
   // MAIN ID ------------- >
@@ -403,6 +412,9 @@ function mkNotationObject(ix, ptrIX, w, h, len, placementOrder) {
   var sec2removeCurveGate = true;
   var sec3addCurveGate = true;
   var sec3removeCurveGate = true;
+  notationObj['currentPitch'] = 440;
+  let pitchUnblinkFrame = 0;
+  //</editor-fold> END VARS END
   // <editor-fold>  <<<< PART ARRANGEMENT IN BROWSER WINDOW >>>> -- //
   let runway_offsetX;
   let notation_offsetX, notation_autopos;
@@ -444,7 +456,7 @@ function mkNotationObject(ix, ptrIX, w, h, len, placementOrder) {
   var crvFollowPanel = mkPanel(crvFollowPanelID, crvFollowCanvas, GOFRETWIDTH, CRV_H, "Player " + ix.toString() + " - Curve", ['center-top', notation_offsetX, notation_offsetY, notation_autopos], 'xs');
   notationObj['crvFollowPanel'] = crvFollowPanel;
   //</editor-fold> END CANVAS, PANELS END
-  // <editor-fold>  <<<< NOTATION OBJECT - 3JS >>>> ----------------- //
+  // <editor-fold>  <<<< NOTATION OBJECT - 3JS >>>> ---------- //
   // Camera ////////////////////////////////
   let camera = new THREE.PerspectiveCamera(75, CANVASW / CANVASH, 1, 3000);
   // camera.position.set(0, 560, -148);
@@ -471,7 +483,7 @@ function mkNotationObject(ix, ptrIX, w, h, len, placementOrder) {
   runwayCanvas.appendChild(renderer.domElement);
   notationObj['renderer'] = renderer;
   //</editor-fold> END NOTATION OBJECT - 3JS END
-  // <editor-fold>  <<<< NOTATION OBJECT - STATIC ELEMENTS >>>> ----- //
+  // <editor-fold>  <<<< NOTATION OBJECT - STATIC ELEMENTS >>>> -- //
   //<editor-fold>  < RUNWAY >             //
   var runwayMatl =
     new THREE.MeshLambertMaterial({
@@ -528,6 +540,8 @@ function mkNotationObject(ix, ptrIX, w, h, len, placementOrder) {
   notationCvsBgRect.setAttributeNS(null, "height", notationCanvasH.toString());
   notationCvsBgRect.setAttributeNS(null, "fill", "white");
   notationCvsBgRect.setAttributeNS(null, "id", "notationCvsBgRect" + ix.toString());
+  notationCvsBgRect.setAttributeNS(null, "stroke", "#40E0D0");
+  notationCvsBgRect.setAttributeNS(null, "stroke-width", "0");
   crvCanvas.appendChild(notationCvsBgRect);
   // NOTATION CANVAS BACKGROUND RECT
   let notationCont = document.createElementNS(SVG_NS, "svg");
@@ -536,7 +550,12 @@ function mkNotationObject(ix, ptrIX, w, h, len, placementOrder) {
   notationCont.setAttributeNS(null, "id", "notationCont" + ix.toString());
   notationCont.setAttributeNS(null, "x", 0);
   notationCont.style.backgroundColor = "white";
+  // Play Pitch Button Here ---->
+  notationCont.addEventListener('click', function() {
+    playTone(mtof(notationObj.currentPitch))
+  });
   crvFollowCanvas.appendChild(notationCont);
+  notationObj['notationCont'] = notationCont;
   let t_pcArr = [];
   t_pcArr.push(ix);
   t_pcArr.push(notationCont);
@@ -785,16 +804,25 @@ function mkNotationObject(ix, ptrIX, w, h, len, placementOrder) {
     }
 
     // NOTATION --------------------------------------------------------- //
-    //REMOVE PREVIOUS NOTATION
+    // Unblink pitch change indicator
+    if (framect > pitchUnblinkFrame) {
+      notationCvsBgRect.setAttributeNS(null, "stroke-width", "0");
+    }
+    //REMOVE PREVIOUS NOTATION & REPLACE WITH NEW PITCHES
     for (var i = 1; i < pitchChanges.length; i++) {
 
       if (pitchChanges[i][1] == framect) {
+
+        //blink Notation Container to indicate pitch change
+        notationCvsBgRect.setAttributeNS(null, "stroke-width", "20");
+        pitchUnblinkFrame = framect + 40;
 
         if (ix < 4) {
           for (var l = 0; l < notationCont.children.length; l++) {
             notationCont.removeChild(notationCont.children[l]);
           }
           currentPitches[ptrIX] = parseFloat(pitchChanges[ix][2][0][ptrIX][1]);
+          notationObj.currentPitch = currentPitches[ptrIX];
           var timg = notes[0][roundByStep(pitchChanges[i][2][0][ix][1], 0.5)];
           notationCont.appendChild(timg);
         } else if (ix >= 4 && ix < 8) {
@@ -803,6 +831,7 @@ function mkNotationObject(ix, ptrIX, w, h, len, placementOrder) {
             notationCont.removeChild(notationCont.children[l]);
           }
           currentPitches[ptrIX] = parseFloat(pitchChanges[i][2][1][j][1]);
+          notationObj.currentPitch = currentPitches[ptrIX];
           var timg = notes[1][roundByStep(pitchChanges[i][2][1][j][1], 0.5)];
           notationCont.appendChild(timg);
         } else if (ix >= 8 && ix < 12) {
@@ -811,6 +840,7 @@ function mkNotationObject(ix, ptrIX, w, h, len, placementOrder) {
             notationCont.removeChild(notationCont.children[l]);
           }
           currentPitches[ptrIX] = parseFloat(pitchChanges[i][2][2][j][1]);
+          notationObj.currentPitch = currentPitches[ptrIX];
           var timg = notes[2][roundByStep(pitchChanges[i][2][2][j][1], 0.5)];
           notationCont.appendChild(timg);
         } else if (ix >= 12 && ix < 16) {
@@ -819,6 +849,7 @@ function mkNotationObject(ix, ptrIX, w, h, len, placementOrder) {
             notationCont.removeChild(notationCont.children[l]);
           }
           currentPitches[ptrIX] = parseFloat(pitchChanges[i][2][3][j][1]);
+          notationObj.currentPitch = currentPitches[ptrIX];
           var timg = notes[3][roundByStep(pitchChanges[i][2][3][j][1], 0.5)];
           notationCont.appendChild(timg);
         }
@@ -870,6 +901,297 @@ function mkNotationObject(ix, ptrIX, w, h, len, placementOrder) {
     }
   }
   // </editor-fold>  END NOTATION OBJECT - ANIMATE END
+
+  // <editor-fold>  <<<< NOTATION OBJECT - SPEED ANIMATE TO NEW START TIME >>>> ------------- //
+  notationObj['speedAnimate'] = function() {
+    // // SECTION 1
+    for (var j = 0; j < partsToRun_eventMatrix[ptrIX].length; j++) {
+      //add the tf to the scene if it is on the runway
+      if (partsToRun_eventMatrix[ptrIX][j][1].position.z > (-RUNWAYLENGTH) && partsToRun_eventMatrix[ptrIX][j][1].position.z < GOFRETPOSZ) {
+        if (partsToRun_eventMatrix[ptrIX][j][0]) {
+          partsToRun_eventMatrix[ptrIX][j][0] = false;
+          scene.add(partsToRun_eventMatrix[ptrIX][j][1]);
+        }
+      }
+      //advance tf if it is not past gofret
+      if (partsToRun_eventMatrix[ptrIX][j][1].position.z < GOFRETPOSZ) {
+        partsToRun_eventMatrix[ptrIX][j][1].position.z += PXPERFRAME;
+      }
+      //When tf reaches goline, blink and remove
+      if (framect == partsToRun_eventMatrix[ptrIX][j][2]) {
+        goFretBlink[ptrIX] = framect + 9;
+        scene.remove(scene.getObjectByName(partsToRun_eventMatrix[ptrIX][j][1].name));
+      }
+    }
+    ///// SECTION 2 ------------------------------------------------------- //
+    for (var j = 0; j < partsToRun_sec2eventMatrix[ptrIX].length; j++) {
+      //add the tf to the scene if it is on the runway
+      if (partsToRun_sec2eventMatrix[ptrIX][j][1].position.z > (-RUNWAYLENGTH) && partsToRun_sec2eventMatrix[ptrIX][j][1].position.z < GOFRETPOSZ) {
+        if (partsToRun_sec2eventMatrix[ptrIX][j][0]) {
+          partsToRun_sec2eventMatrix[ptrIX][j][0] = false;
+          scene.add(partsToRun_sec2eventMatrix[ptrIX][j][1]);
+        }
+      }
+      //advance tf if it is not past gofret
+      if (partsToRun_sec2eventMatrix[ptrIX][j][1].position.z < (GOFRETPOSZ + partsToRun_sec2eventMatrix[ptrIX][j][7])) {
+        partsToRun_sec2eventMatrix[ptrIX][j][1].position.z += PXPERFRAME;
+      }
+      //When tf reaches goline, blink and remove
+      if (framect >= partsToRun_sec2eventMatrix[ptrIX][j][2] && framect < partsToRun_sec2eventMatrix[ptrIX][j][6]) {
+        goFretBlink[ptrIX] = framect + 9;
+        crvFollowData[ptrIX][0] = true;
+        crvFollowData[ptrIX][1] = scale(framect, partsToRun_sec2eventMatrix[ptrIX][j][2], partsToRun_sec2eventMatrix[ptrIX][j][6], 0.0, 1.0);
+      }
+      //end of event remove
+      if (framect == partsToRun_sec2eventMatrix[ptrIX][j][6]) {
+        crvFollowData[ptrIX][0] = false;
+        scene.remove(scene.getObjectByName(partsToRun_sec2eventMatrix[ptrIX][j][1].name));
+      }
+    }
+    //crv follow
+    // var tnewCresEvent = [true, tcresEventMesh, tGoFrm, tTime, tNumPxTilGo, tiGoPx, tOffFrm, tcresEventLength]; //[gate so tempofret is added to scene only once, mesh, goFrame]
+    if (crvFollowData[ptrIX][0]) {
+      var tcoordsix = Math.floor(scale(crvFollowData[ptrIX][1], 0.0, 1.0, 0, cresCrvCoords.length));
+      //circ
+      tcresSvgCirc.setAttributeNS(null, "cx", cresCrvCoords[tcoordsix].x.toString());
+      tcresSvgCirc.setAttributeNS(null, "cy", cresCrvCoords[tcoordsix].y.toString());
+      //rect
+      var temph = notationCanvasH - cresCrvCoords[tcoordsix].y;
+      tcresFollowRect.setAttributeNS(null, "y", cresCrvCoords[tcoordsix].y.toString());
+      tcresFollowRect.setAttributeNS(null, "height", temph.toString());
+    }
+    // // SECTION 3 - Hocket
+    let t_evtSet;
+    let t_shouldRun = false;
+    partsToRun_sec3eventMatrixHocket.forEach((pn_evtSet_ar) => {
+      let plrNum = pn_evtSet_ar[0];
+      if (ix == plrNum) {
+        t_evtSet = pn_evtSet_ar[1];
+        t_shouldRun = true;
+      }
+    });
+    if (t_shouldRun) {
+      for (var j = 0; j < t_evtSet.length; j++) {
+        //add the tf to the scene if it is on the runway
+        if (t_evtSet[j][1].position.z > (-RUNWAYLENGTH) && t_evtSet[j][1].position.z < GOFRETPOSZ) {
+
+          if (t_evtSet[j][0]) {
+            t_evtSet[j][0] = false;
+            scene.add(t_evtSet[j][1]);
+          }
+        }
+        //advance tf if it is not past gofret
+        if (t_evtSet[j][1].position.z < GOFRETPOSZ) {
+          t_evtSet[j][1].position.z += PXPERFRAME;
+        }
+        //When tf reaches goline, blink and remove
+        if (framect == t_evtSet[j][2]) {
+          goFretBlink[ptrIX] = framect + 9;
+          scene.remove(scene.getObjectByName(t_evtSet[j][1].name));
+        }
+      }
+    }
+
+    ///// SECTION 3 - Cres ------------------------------------------------------- //
+    let t_evtSet2;
+    let t_shouldRun2 = false;
+    partsToRun_sec3eventMatrixCres.forEach((pn_evtSet_ar) => {
+      let plrNum = pn_evtSet_ar[0];
+      if (ix == plrNum) {
+        t_evtSet2 = pn_evtSet_ar[1];
+        t_shouldRun2 = true;
+      }
+    });
+    if (t_shouldRun2) {
+      for (var j = 0; j < t_evtSet2.length; j++) {
+        //add the tf to the scene if it is on the runway
+        if (t_evtSet2[j][1].position.z > (-RUNWAYLENGTH) && t_evtSet2[j][1].position.z < GOFRETPOSZ) {
+          if (t_evtSet2[j][0]) {
+            t_evtSet2[j][0] = false;
+            scene.add(t_evtSet2[j][1]);
+          }
+        }
+        //advance tf if it is not past gofret
+        if (t_evtSet2[j][1].position.z < (GOFRETPOSZ + t_evtSet2[j][7])) {
+          t_evtSet2[j][1].position.z += PXPERFRAME;
+        }
+        //When tf reaches goline, blink and remove
+        if (framect >= Math.round(t_evtSet2[j][2]) && framect < Math.round(t_evtSet2[j][6])) {
+          goFretBlink[ptrIX] = framect + 9;
+          crvFollowData[ptrIX][0] = true;
+          crvFollowData[ptrIX][1] = scale(framect, t_evtSet2[j][2], t_evtSet2[j][6], 0.0, 1.0);
+        }
+
+        //end of event remove
+        if (framect == t_evtSet2[j][6]) {
+          crvFollowData[ptrIX][0] = false;
+          scene.remove(scene.getObjectByName(t_evtSet2[j][1].name));
+        }
+      }
+      //crv follow
+      // var tnewCresEvent = [true, tcresEventMesh, tGoFrm, tTime, tNumPxTilGo, tiGoPx, tOffFrm, tcresEventLength]; //[gate so tempofret is added to scene only once, mesh, goFrame]
+      if (crvFollowData[ptrIX][0]) {
+        var tcoordsix = Math.floor(scale(crvFollowData[ptrIX][1], 0.0, 1.0, 0, cresCrvCoords.length));
+        //circ
+        tcresSvgCirc.setAttributeNS(null, "cx", cresCrvCoords[tcoordsix].x.toString());
+        tcresSvgCirc.setAttributeNS(null, "cy", cresCrvCoords[tcoordsix].y.toString());
+        //rect
+        var temph = notationCanvasH - cresCrvCoords[tcoordsix].y;
+        tcresFollowRect.setAttributeNS(null, "y", cresCrvCoords[tcoordsix].y.toString());
+        tcresFollowRect.setAttributeNS(null, "height", temph.toString());
+      }
+    }
+
+    // // // SECTION 3 - Accel
+    let t_evtSet3;
+    let t_shouldRun3 = false;
+    partsToRun_sec3eventMatrixAccel.forEach((pn_evtSet_ar) => {
+      let plrNum = pn_evtSet_ar[0];
+      if (ix == plrNum) {
+        t_evtSet3 = pn_evtSet_ar[1];
+        t_shouldRun3 = true;
+      }
+    });
+    if (t_shouldRun3) {
+      for (var j = 0; j < t_evtSet3.length; j++) {
+        //add the tf to the scene if it is on the runway
+        if (t_evtSet3[j][1].position.z > (-RUNWAYLENGTH) && t_evtSet3[j][1].position.z < GOFRETPOSZ) {
+
+          if (t_evtSet3[j][0]) {
+            t_evtSet3[j][0] = false;
+            scene.add(t_evtSet3[j][1]);
+          }
+        }
+        //advance tf if it is not past gofret
+        if (t_evtSet3[j][1].position.z < GOFRETPOSZ) {
+          t_evtSet3[j][1].position.z += PXPERFRAME;
+        }
+        //When tf reaches goline, blink and remove
+        if (framect == t_evtSet3[j][2]) {
+          goFretBlink[ptrIX] = framect + 9;
+          scene.remove(scene.getObjectByName(t_evtSet3[j][1].name));
+        }
+      }
+    }
+
+    // SECTION 4
+    for (var j = 0; j < partsToRun_sec4eventMatrix[ptrIX].length; j++) {
+      //add the tf to the scene if it is on the runway
+      if (partsToRun_sec4eventMatrix[ptrIX][j][1].position.z > (-RUNWAYLENGTH) && partsToRun_sec4eventMatrix[ptrIX][j][1].position.z < GOFRETPOSZ) {
+        if (partsToRun_sec4eventMatrix[ptrIX][j][0]) {
+          partsToRun_sec4eventMatrix[ptrIX][j][0] = false;
+          scene.add(partsToRun_sec4eventMatrix[ptrIX][j][1]);
+        }
+      }
+      //advance tf if it is not past gofret
+      if (partsToRun_sec4eventMatrix[ptrIX][j][1].position.z < GOFRETPOSZ) {
+        partsToRun_sec4eventMatrix[ptrIX][j][1].position.z += PXPERFRAME;
+      }
+      //When tf reaches goline, blink and remove
+      if (framect == partsToRun_sec4eventMatrix[ptrIX][j][2]) {
+        goFretBlink[ptrIX] = framect + 9;
+        scene.remove(scene.getObjectByName(partsToRun_sec4eventMatrix[ptrIX][j][1].name));
+      }
+    }
+
+    // NOTATION --------------------------------------------------------- //
+    // Unblink pitch change indicator
+    if (framect > pitchUnblinkFrame) {
+      notationCvsBgRect.setAttributeNS(null, "stroke-width", "0");
+    }
+    //REMOVE PREVIOUS NOTATION & REPLACE WITH NEW PITCHES
+    for (var i = 1; i < pitchChanges.length; i++) {
+
+      if (pitchChanges[i][1] == framect) {
+
+        //blink Notation Container to indicate pitch change
+        notationCvsBgRect.setAttributeNS(null, "stroke-width", "20");
+        pitchUnblinkFrame = framect + 40;
+
+        if (ix < 4) {
+          for (var l = 0; l < notationCont.children.length; l++) {
+            notationCont.removeChild(notationCont.children[l]);
+          }
+          currentPitches[ptrIX] = parseFloat(pitchChanges[ix][2][0][ptrIX][1]);
+          notationObj.currentPitch = currentPitches[ptrIX];
+          var timg = notes[0][roundByStep(pitchChanges[i][2][0][ix][1], 0.5)];
+          notationCont.appendChild(timg);
+        } else if (ix >= 4 && ix < 8) {
+          var j = ix - 4;
+          for (var l = 0; l < notationCont.children.length; l++) {
+            notationCont.removeChild(notationCont.children[l]);
+          }
+          currentPitches[ptrIX] = parseFloat(pitchChanges[i][2][1][j][1]);
+          notationObj.currentPitch = currentPitches[ptrIX];
+          var timg = notes[1][roundByStep(pitchChanges[i][2][1][j][1], 0.5)];
+          notationCont.appendChild(timg);
+        } else if (ix >= 8 && ix < 12) {
+          var j = ix - 8;
+          for (var l = 0; l < notationCont.children.length; l++) {
+            notationCont.removeChild(notationCont.children[l]);
+          }
+          currentPitches[ptrIX] = parseFloat(pitchChanges[i][2][2][j][1]);
+          notationObj.currentPitch = currentPitches[ptrIX];
+          var timg = notes[2][roundByStep(pitchChanges[i][2][2][j][1], 0.5)];
+          notationCont.appendChild(timg);
+        } else if (ix >= 12 && ix < 16) {
+          var j = ix - 12;
+          for (var l = 0; l < notationCont.children.length; l++) {
+            notationCont.removeChild(notationCont.children[l]);
+          }
+          currentPitches[ptrIX] = parseFloat(pitchChanges[i][2][3][j][1]);
+          notationObj.currentPitch = currentPitches[ptrIX];
+          var timg = notes[3][roundByStep(pitchChanges[i][2][3][j][1], 0.5)];
+          notationCont.appendChild(timg);
+        }
+      }
+    }
+    //Move crv followers into frame only when needed
+    if (framect == (Math.round((sec2start - 2) * FRAMERATE) + (leadTime * FRAMERATE))) {
+      if (sec2addCurveGate) {
+        sec2addCurveGate = false;
+        tcresSvgCrv.setAttributeNS(null, "transform", "translate( 0, -3)");
+        tcresSvgCirc.setAttributeNS(null, "transform", "translate( 0, -3)");
+        tcresFollowRect.setAttributeNS(null, "x", '0');
+      }
+    }
+    // Remove curves at end of section 2
+    if (framect == (Math.round((sec3StartTime - 3) * FRAMERATE) + (leadTime * FRAMERATE))) {
+      if (sec2removeCurveGate) {
+        sec2removeCurveGate = false;
+        sec3Cres.forEach((cresPartNum) => {
+          if (ix != cresPartNum) {
+            tcresSvgCrv.setAttributeNS(null, "transform", "translate( 1000, -3)");
+            tcresSvgCirc.setAttributeNS(null, "transform", "translate( 1000, -3)");
+            tcresFollowRect.setAttributeNS(null, "x", '1000');
+          }
+        });
+      }
+    }
+    //Move crv followers into frame for sec 3
+    if (framect == (Math.round((sec3StartTime - 1) * FRAMERATE) + (leadTime * FRAMERATE))) {
+      if (sec3addCurveGate) {
+        sec3addCurveGate = false;
+        sec3Cres.forEach((cresPartNum) => {
+          if (ix == cresPartNum) {
+            tcresSvgCrv.setAttributeNS(null, "transform", "translate( 0, -3)");
+            tcresSvgCirc.setAttributeNS(null, "transform", "translate( 0, -3)");
+            tcresFollowRect.setAttributeNS(null, "x", '0');
+          }
+        });
+      }
+    }
+    // //Remove rest of curves at end of section 3
+    if (framect == (Math.round((sec3EndTime + 5) * FRAMERATE) + (leadTime * FRAMERATE))) {
+      if (sec3removeCurveGate) {
+        sec3removeCurveGate = false;
+        tcresSvgCrv.setAttributeNS(null, "transform", "translate( 1000, -3)");
+        tcresSvgCirc.setAttributeNS(null, "transform", "translate( 1000, -3)");
+        tcresFollowRect.setAttributeNS(null, "x", '1000');
+      }
+    }
+  }
+  // </editor-fold>  END NOTATION OBJECT - SPEED ANIMATE END
   // RENDER /////////////////////////////////////////////
   renderer.render(scene, camera);
   return notationObj;
@@ -893,22 +1215,32 @@ function mkCtrlPanel_ctrl(id, w, h, title, posArr, headerSize) {
   }
   let startBtn = mkButton(canvas, id + 'startbtn', btnW, btnH, 0, 0, 'Start', 12, startBtnFunc);
   panelObj['startBtn'] = startBtn;
-  // SOCKET IO - START PIECE ------ >
-  SOCKET.on('pitl_startpiecebroadcast', function(data) {
-    if (piece_canStart) {
-      piece_canStart = false;
-      startBtn_isActive = false;
-      stopBtn_isActive = true;
-      pauseBtn_isActive = true;
-      animation_isGo = true;
-      scoreCtrlPanel.stopBtn.className = 'btn btn-1';
-      scoreCtrlPanel.startBtn.className = 'btn btn-1_inactive';
-      scoreCtrlPanel.pauseBtn.className = 'btn btn-1';
-      scoreCtrlPanel.panel.smallify();
-      startPiece();
-    }
-  });
+
   //</editor-fold> END START BUTTON END
+  //<editor-fold>  < CONTROL PANEL - SET START TIME >      //
+  var timeInputClickFunc = function() {
+    timeField.focus();
+    timeField.select();
+  }
+  var timeInputKeyupFunc = function(e) {
+    if (e.keyCode === 13) {
+      if (startBtn_isActive) {
+        var newStartTime = parseFloat(timeField.value);
+        SOCKET.emit('pitl_startTime', {
+          newStartTime: newStartTime,
+        });
+      }
+    }
+  }
+  var timeFieldID = id + 'timeinput';
+  var timeField = mkInputField(canvas, timeFieldID, btnW - 14, 10, 65, 10, 'black', 14, timeInputClickFunc, timeInputKeyupFunc);
+  panelObj['timeField'] = timeField;
+  var timeFieldLbl = mkLabel2(canvas, id + 'timeFieldLbl', timeFieldID, btnW, 13, 18, 10, 'Time Sec:', 11, 'white');
+
+
+
+
+  //</editor-fold> END SET START TIME END
   //<editor-fold>  < CONTROL PANEL - PAUSE BUTTON >        //
   let pauseBtnFunc = function() {
     if (pauseBtn_isActive) {
@@ -929,26 +1261,10 @@ function mkCtrlPanel_ctrl(id, w, h, title, posArr, headerSize) {
       }
     }
   }
-  let pauseBtn = mkButton(canvas, id + 'pausebtn', btnW, btnH, 51, 0, 'Pause', 12, pauseBtnFunc);
+  let pauseBtn = mkButton(canvas, id + 'pausebtn', btnW, btnH, 81, 0, 'Pause', 12, pauseBtnFunc);
   panelObj['pauseBtn'] = pauseBtn;
   pauseBtn.className = 'btn btn-1_inactive';
-  // SOCKET IO - PAUSE BROADCAST -- >
-  SOCKET.on('pitl_pauseBroadcast', function(data) {
-    pauseState = data.pauseState;
-    if (pauseState == 0) { //unpaused
-      pieceTimeAdjustment = data.pauseTime + pieceTimeAdjustment;
-      scoreCtrlPanel.pauseBtn.innerText = 'Pause';
-      scoreCtrlPanel.pauseBtn.className = 'btn btn-1';
-      scoreCtrlPanel.panel.smallify();
-      animation_isGo = true;
-      requestAnimationFrame(animationEngine);
-    } else if (pauseState == 1) { //paused
-      pausedTime = data.pauseTime
-      animation_isGo = false;
-      scoreCtrlPanel.pauseBtn.innerText = 'Resume';
-      scoreCtrlPanel.pauseBtn.className = 'btn btn-2';
-    }
-  });
+
   //</editor-fold> END PAUSE BUTTON END
   //<editor-fold>  < CONTROL PANEL - STOP BUTTON >         //
   let stopBtnFunc = function() {
@@ -956,17 +1272,112 @@ function mkCtrlPanel_ctrl(id, w, h, title, posArr, headerSize) {
       SOCKET.emit('pitl_stop', {});
     }
   }
-  let stopBtn = mkButton(canvas, id + 'stopbtn', btnW, btnH, 51 + btnH + 16, 0, 'stop', 12, stopBtnFunc);
-  panelObj['stopBtn'] = stopBtn;
-  // SOCKET IO - STOP ------------- >
+  let stopBtn = mkButton(canvas, id + 'stopbtn', btnW, btnH, 81 + btnH + 10, 0, 'stop', 12, stopBtnFunc);
   stopBtn.className = 'btn btn-1_inactive';
-  SOCKET.on('pitl_stopBroadcast', function(data) {
-    location.reload();
-  });
+  panelObj['stopBtn'] = stopBtn;
+
   //</editor-fold> END STOP BUTTON END
   return panelObj;
 }
 //</editor-fold> >> CONTROL PANEL  ////////////////////////////////////////////
+
+//<editor-fold> << SOCKET IO >> -------------------------------------------- //
+// SOCKET IO - START PIECE ------ >
+SOCKET.on('pitl_startpiecebroadcast', function(data) {
+  if (piece_canStart) {
+    //INIT AUDIO
+    initAudio();
+    piece_canStart = false;
+    startBtn_isActive = false;
+    stopBtn_isActive = true;
+    pauseBtn_isActive = true;
+    animation_isGo = true;
+    if (makeControlPanel) {
+      scoreCtrlPanel.stopBtn.className = 'btn btn-1';
+      scoreCtrlPanel.startBtn.className = 'btn btn-1_inactive';
+      scoreCtrlPanel.pauseBtn.className = 'btn btn-1';
+      scoreCtrlPanel.panel.smallify();
+    }
+    startPiece();
+  }
+});
+
+// SOCKET IO - SET START TIME --- >
+SOCKET.on('pitl_startTimeBroadcast', function(data) {
+  // SPEED ANIMATE ---------------------- >
+  let newStartTime = data.newStartTime + leadTime;
+  clockAdj = newStartTime;
+  var newFrameCt = Math.round(newStartTime * FRAMERATE);
+  framect = newFrameCt;
+
+
+  //Are Curves on scene?
+  if (newStartTime >= sec2start && newStartTime < endSec2Time) { //curves are on scene
+    notationObjects.forEach((no, noix) => {
+      no.crv.setAttributeNS(null, "transform", "translate( 0, -3)");
+      no.crvFollowCirc.setAttributeNS(null, "transform", "translate( 0, -3)");
+      no.crvFollowRect.setAttributeNS(null, "x", '0');
+    });
+  } else if (newStartTime >= sec3StartTime && newStartTime < sec3EndTime) { //some curves are on scene
+    sec3Cres.forEach((sec3CresPartNum) => {
+      notationObjects.forEach((no, noix) => {
+        if (sec3CresPartNum == no.ix) {
+          no.crv.setAttributeNS(null, "transform", "translate( 0, -3)");
+          no.crvFollowCirc.setAttributeNS(null, "transform", "translate( 0, -3)");
+          no.crvFollowRect.setAttributeNS(null, "x", '0');
+        }
+      });
+    });
+  } else { //curves are off scene
+    notationObjects.forEach((no, noix) => {
+      no.crv.setAttributeNS(null, "transform", "translate( 1000, -3)");
+      no.crvFollowCirc.setAttributeNS(null, "transform", "translate(1000, -3)");
+      no.crvFollowRect.setAttributeNS(null, "x", '1000');
+    });
+  }
+
+
+
+
+  for (let i = 0; i < newFrameCt; i++) {
+    notationObjects.forEach(function(objToAnimate, ix) {
+      objToAnimate.speedAnimate();
+    });
+  }
+  if (makeControlPanel) scoreCtrlPanel.timeField.disabled = 'true';
+
+});
+
+
+// SOCKET IO - PAUSE BROADCAST -- >
+SOCKET.on('pitl_pauseBroadcast', function(data) {
+  pauseState = data.pauseState;
+  if (pauseState == 0) { //unpaused
+    pieceTimeAdjustment = data.pauseTime + pieceTimeAdjustment;
+    if (makeControlPanel) {
+      scoreCtrlPanel.pauseBtn.innerText = 'Pause';
+      scoreCtrlPanel.pauseBtn.className = 'btn btn-1';
+      scoreCtrlPanel.panel.smallify();
+    }
+    animation_isGo = true;
+    requestAnimationFrame(animationEngine);
+  } else if (pauseState == 1) { //paused
+    pausedTime = data.pauseTime
+    animation_isGo = false;
+    if (makeControlPanel) {
+      scoreCtrlPanel.pauseBtn.innerText = 'Resume';
+      scoreCtrlPanel.pauseBtn.className = 'btn btn-2';
+    }
+  }
+});
+
+
+// SOCKET IO - STOP ------------- >
+SOCKET.on('pitl_stopBroadcast', function(data) {
+  location.reload();
+});
+
+//</editor-fold>  > END SOCKET IO  ////////////////////////////////////////////
 
 
 //<editor-fold> << FUNC TO LOAD INITIAL NOTATION FOR ALL PARTS  >> --------- //
@@ -1240,8 +1651,8 @@ function mkEventMatrixSec4_singlePart(partNum) {
 //<editor-fold>  < ANIMATION ENGINE - ENGINE >           //
 function animationEngine(timestamp) {
   var t_now = new Date(TS.now());
-  t_lt = t_now.getTime();
-  // calcClock(t_lt);
+  t_lt = t_now.getTime() - pieceTimeAdjustment;
+  calcDisplayClock(t_lt);
   delta += t_lt - lastFrameTimeMs;
   lastFrameTimeMs = t_lt;
   while (delta >= MSPERFRAME) {
@@ -1252,18 +1663,16 @@ function animationEngine(timestamp) {
   if (animation_isGo) requestAnimationFrame(animationEngine);
 }
 //</editor-fold> END ANIMATION ENGINE - ENGINE END
-//<editor-fold>     < ANIMATION ENGINE - UPDATE >           //
+//<editor-fold>  < ANIMATION ENGINE - UPDATE >           //
 function update(aMSPERFRAME, currTimeMS) {
   framect++;
-  // pieceClock += aMSPERFRAME;
-  // pieceClock = pieceClock - clockadj;
   // ANIMATE ---------------------- >
   notationObjects.forEach(function(objToAnimate, ix) {
     objToAnimate.animate();
   });
 }
 //</editor-fold> END ANIMATION ENGINE - UPDATE END
-//<editor-fold>     < ANIMATION ENGINE - DRAW >             //
+//<editor-fold>  < ANIMATION ENGINE - DRAW >             //
 function draw() {
   // GO FRET BLINK TIMER ///////////////////////////////////
   partsToRun.forEach((numPartToRun, ptrIX) => {
@@ -1283,86 +1692,345 @@ function draw() {
 //</editor-fold> END ANIMATION ENGINE - DRAW END    //
 //</editor-fold>  > END ANIMATION ENGINE  /////////////////////////////////////
 
+//<editor-fold>   < UTILITIES - CLOCK >                  //
+let displayClock_div = mkCanvasDiv('displayClock_div', 65, 20, 'yellow');
+let displayClock_panel = mkClockPanel(displayClock_div, 'left-bottom');
+displayClock_panel.smallify();
+
+function calcDisplayClock(pieceEpochTime) {
+  let pieceTimeMS = pieceEpochTime - pieceStartTime_epochTime + (clockAdj * 1000);
+  displayClock_TimeMS = pieceTimeMS % 1000;
+  displayClock_TimeSec = Math.floor(pieceTimeMS / 1000) % 60;
+  displayClock_TimeMin = Math.floor(pieceTimeMS / 60000) % 60;
+  displayClock_TimeHrs = Math.floor(pieceTimeMS / 3600000);
+  displayClock_div.innerHTML = pad(displayClock_TimeHrs, 2) + ":" + pad(displayClock_TimeMin, 2) + ":" + pad(displayClock_TimeSec, 2);
+}
+//</editor-fold> END UTILITIES - CLOCK END
 
 
 
-// To jump to different time in piece
-function pieceClockAdjust(time) { //if time has passed
-  let newTime = time + leadTime;
-  var tNewFrame = newTime * FRAMERATE;
-  framect = Math.round(tNewFrame);
-  //Are Curves on scene?
-  if (newTime >= sec2start && newTime < endSec2Time) { //curves are on scene
-    notationObjects.forEach((no, noix) => {
-      no.crv.setAttributeNS(null, "transform", "translate( 0, -3)");
-      no.crvFollowCirc.setAttributeNS(null, "transform", "translate( 0, -3)");
-      no.crvFollowRect.setAttributeNS(null, "x", '0');
-    });
-  } else if (newTime >= sec3StartTime && newTime < sec3EndTime) { //some curves are on scene
-    sec3Cres.forEach((sec3CresPartNum) => {
-      notationObjects.forEach((no, noix) => {
-        if (sec3CresPartNum == no.ix) {
-          no.crv.setAttributeNS(null, "transform", "translate( 0, -3)");
-          no.crvFollowCirc.setAttributeNS(null, "transform", "translate( 0, -3)");
-          no.crvFollowRect.setAttributeNS(null, "x", '0');
-        }
-      });
-    });
-  } else { //curves are off scene
-    notationObjects.forEach((no, noix) => {
-      no.crv.setAttributeNS(null, "transform", "translate( 1000, -3)");
-      no.crvFollowCirc.setAttributeNS(null, "transform", "translate(1000, -3)");
-      no.crvFollowRect.setAttributeNS(null, "x", '1000');
-    });
-  }
-  //MOVE MESHES
-  //Sec 1
-  for (var i = 0; i < partsToRun_eventMatrix.length; i++) {
-    for (var j = 0; j < partsToRun_eventMatrix[i].length; j++) {
 
-      partsToRun_eventMatrix[i][j][1].position.z += (tNewFrame * PXPERFRAME);
 
+
+
+
+
+/*
+
+let newStartTime = data.newStartTime + leadTime;
+clockAdj = newStartTime;
+var frameAdj = Math.round(newStartTime * FRAMERATE);
+framect = frameAdj;
+scoreCtrlPanel.timeField.disabled = 'true';
+advanceEvents(partsToRun_eventMatrix);
+// advanceEvents(partsToRun_sec2eventMatrix);
+// advanceEvents(partsToRun_sec3eventMatrixHocket);
+// advanceEvents(partsToRun_sec3eventMatrixCres);
+// advanceEvents(partsToRun_sec3eventMatrixAccel);
+// advanceEvents(partsToRun_sec4eventMatrix);
+// removeEvents(partsToRun_sec2eventMatrix);
+// removeEvents(partsToRun_sec4eventMatrix);
+
+
+
+// let partsToRun_eventMatrix = [];
+// let partsToRun_sec2eventMatrix = [];
+// let partsToRun_sec3eventMatrixHocket = [];
+// let partsToRun_sec3eventMatrixCres = [];
+// let partsToRun_sec3eventMatrixAccel = [];
+// let partsToRun_sec4eventMatrix = [];
+
+// Get rid of the events in the past & advance the position.z of the events in the future
+// function advanceEvents(partsToRun_evtMtrxs) {
+
+
+  let eventMatrix = partsToRun_evtMtrxs;
+  for (var i = 0; i < eventMatrix.length; i++) {
+    for (var j = 0; j < eventMatrix[i].length; j++) {
+      //move each event
+      eventMatrix[i][j][1].position.z += (frameAdj * PXPERFRAME);
     }
   }
+
+
+
+// }
+
+/*
+
+//Clear events that have already passed
+    notationObjects.forEach(function(it, ix) {
+      var tar1 = [];
+      tar1.push(ix);
+      var tar2 = [];
+      var t_eventMatrix = partsToRunEvents[ix];
+      for (var i = 0; i < t_eventMatrix.length; i++) {
+        var t_mesh = t_eventMatrix[i][1];
+        var t_time = t_eventMatrix[i][3];
+        //if they had already passed remove the meshes
+        if (t_time > clockAdj) {
+          //need to adjust the remaining event meshes pos.y
+          //because animator uses this to advance events
+          t_mesh.position.y = t_mesh.position.y - (RUNWAY_PXPERFRAME * frameAdj);
+        } else {
+          var obj2Rmv = it.scene.getObjectByName(t_mesh.name);
+          it.conveyor.remove(obj2Rmv);
+          //Collect indexes of events to remove and remove later
+          tar2.push(i);
+        }
+      }
+      tar1.push(tar2);
+      eventsToRmv.push(tar1);
+    });
+    //Remove all pased events from eventsMatrix array
+    eventsToRmv.forEach((it, ix) => {
+      var i1 = it[0];
+      var itemsToRmv = it[1];
+      for (var i = itemsToRmv.length - 1; i >= 0; i--) {
+        partsToRunEvents[i1].splice(itemsToRmv[i], 1);
+      }
+    });
+
+
+
+
+
+
+      //Sec 1
+      for (var i = 0; i < eventMatrix.length; i++) {
+        for (var j = 0; j < eventMatrix[i].length; j++) {
+          //move each event
+          eventMatrix[i][j][1].position.z += (tNewFrame * PXPERFRAME);
+        }
+      }
+
+
+
+
+*/
+
+
+
+
+
+/*
   //Sec 2
-  for (var i = 0; i < partsToRun_sec2eventMatrix.length; i++) {
-    for (var j = 0; j < partsToRun_sec2eventMatrix[i].length; j++) {
-
-      partsToRun_sec2eventMatrix[i][j][1].position.z += (tNewFrame * PXPERFRAME);
-
+  for (var i = 0; i < sec2eventMatrix.length; i++) {
+    for (var j = 0; j < sec2eventMatrix[i].length; j++) {
+      //move each event
+      sec2eventMatrix[i][j][1].position.z += (tNewFrame * PXPERFRAME);
     }
   }
   //Sec 3
   //hocket
-  for (var i = 0; i < partsToRun_sec3eventMatrixHocket.length; i++) {
-    for (var j = 0; j < partsToRun_sec3eventMatrixHocket[i].length; j++) {
-
-      partsToRun_sec3eventMatrixHocket[i][j][1].position.z += (tNewFrame * PXPERFRAME);
-
+  for (var i = 0; i < sec3eventMatrixHocket.length; i++) {
+    for (var j = 0; j < sec3eventMatrixHocket[i].length; j++) {
+      sec3eventMatrixHocket[i][j][1].position.z += (tNewFrame * PXPERFRAME);
     }
   }
   //cres
-  for (var i = 0; i < partsToRun_sec3eventMatrixCres.length; i++) {
-    for (var j = 0; j < partsToRun_sec3eventMatrixCres[i].length; j++) {
-
-      partsToRun_sec3eventMatrixCres[i][j][1].position.z += (tNewFrame * PXPERFRAME);
-
+  for (var i = 0; i < sec3eventMatrixCres.length; i++) {
+    for (var j = 0; j < sec3eventMatrixCres[i].length; j++) {
+      sec3eventMatrixCres[i][j][1].position.z += (tNewFrame * PXPERFRAME);
     }
   }
   //Accel
-  for (var i = 0; i < partsToRun_sec3eventMatrixAccel.length; i++) {
-    for (var j = 0; j < partsToRun_sec3eventMatrixAccel[i].length; j++) {
-
-      partsToRun_sec3eventMatrixAccel[i][j][1].position.z += (tNewFrame * PXPERFRAME);
-
+  for (var i = 0; i < sec3eventMatrixAccel.length; i++) {
+    for (var j = 0; j < sec3eventMatrixAccel[i].length; j++) {
+      sec3eventMatrixAccel[i][j][1].position.z += (tNewFrame * PXPERFRAME);
     }
   }
   //Section 4
-  for (var i = 0; i < partsToRun_sec4eventMatrix.length; i++) {
-    for (var j = 0; j < partsToRun_sec4eventMatrix[i].length; j++) {
-
-      partsToRun_sec4eventMatrix[i][j][1].position.z += (tNewFrame * PXPERFRAME);
-
+  for (var i = 0; i < sec4eventMatrix.length; i++) {
+    for (var j = 0; j < sec4eventMatrix[i].length; j++) {
+      sec4eventMatrix[i][j][1].position.z += (tNewFrame * PXPERFRAME);
     }
   }
 }
+
+*/
+
+
+/*
+    // Find right pitches
+    //// Remove Current Pitches
+    notationObjects.forEach((no, ptrIX) => {
+      for (var l = 0; l < no.notationCont.children.length; l++) {
+        no.notationCont.removeChild(no.notationCont.children[l]);
+      }
+    });
+    for (var i = 1; i < pitchChanges.length; i++) {
+      if (pitchChanges[i][1] > frameAdj) {
+        let currPcIx = i - 1;
+        partsToRun.forEach((partNum, ptrIX) => {
+          if (partNum < 4) {
+            currentPitches[ptrIX] = parseFloat(pitchChanges[currPcIx][2][0][ptrIX][1]);
+            notationObjects[ptrIX].currentPitch = currentPitches[ptrIX];
+            var timg = notes[0][roundByStep(pitchChanges[currPcIx][2][0][partNum][1], 0.5)];
+            notationObjects[ptrIX].notationCont.appendChild(timg);
+          } else if (partNum >= 4 && partNum < 8) {
+            var j = partNum - 4;
+            currentPitches[ptrIX] = parseFloat(pitchChanges[currPcIx][2][1][j][1]);
+            notationObjects[ptrIX].currentPitch = currentPitches[ptrIX];
+            var timg = notes[1][roundByStep(pitchChanges[currPcIx][2][1][j][1], 0.5)];
+            notationObjects[ptrIX].notationCont.appendChild(timg);
+          } else if (partNum >= 8 && partNum < 12) {
+            var j = partNum - 8;
+            currentPitches[ptrIX] = parseFloat(pitchChanges[currPcIx][2][2][j][1]);
+            notationObjects[ptrIX].currentPitch = currentPitches[ptrIX];
+            var timg = notes[2][roundByStep(pitchChanges[currPcIx][2][2][j][1], 0.5)];
+            notationObjects[ptrIX].notationCont.appendChild(timg);
+          } else if (partNum >= 12 && partNum < 16) {
+            var j = partNum - 12;
+            currentPitches[ptrIX] = parseFloat(pitchChanges[currPcIx][2][3][j][1]);
+            notationObjects[ptrIX].currentPitch = currentPitches[ptrIX];
+            var timg = notes[3][roundByStep(pitchChanges[currPcIx][2][3][j][1], 0.5)];
+            notationObjects[ptrIX].notationCont.appendChild(timg);
+          }
+        });
+      }
+    }
+
+
+    //Are Curves on scene?
+    if (newStartTime >= sec2start && newStartTime < endSec2Time) { //curves are on scene
+      notationObjects.forEach((no, noix) => {
+        no.crv.setAttributeNS(null, "transform", "translate( 0, -3)");
+        no.crvFollowCirc.setAttributeNS(null, "transform", "translate( 0, -3)");
+        no.crvFollowRect.setAttributeNS(null, "x", '0');
+      });
+    } else if (newStartTime >= sec3StartTime && newStartTime < sec3EndTime) { //some curves are on scene
+      sec3Cres.forEach((sec3CresPartNum) => {
+        notationObjects.forEach((no, noix) => {
+          if (sec3CresPartNum == no.ix) {
+            no.crv.setAttributeNS(null, "transform", "translate( 0, -3)");
+            no.crvFollowCirc.setAttributeNS(null, "transform", "translate( 0, -3)");
+            no.crvFollowRect.setAttributeNS(null, "x", '0');
+          }
+        });
+      });
+    } else { //curves are off scene
+      notationObjects.forEach((no, noix) => {
+        no.crv.setAttributeNS(null, "transform", "translate( 1000, -3)");
+        no.crvFollowCirc.setAttributeNS(null, "transform", "translate(1000, -3)");
+        no.crvFollowRect.setAttributeNS(null, "x", '1000');
+      });
+    }
+
+
+    // eventMatrix, sec2eventMatrix, sec3eventMatrixHocket, sec3eventMatrixCres, sec3eventMatrixAccel, sec4eventMatrix;
+    // let sec3HocketPlayers, sec3Cres, sec3Accel;
+    // let sec2start, endSec2Time, sec3StartTime, sec3EndTime;
+    // let partsToRun_eventMatrix = [];
+    // let partsToRun_sec2eventMatrix = [];
+    // let partsToRun_sec3eventMatrixHocket = [];
+    // let partsToRun_sec3eventMatrixCres = [];
+    // let partsToRun_sec3eventMatrixAccel = [];
+    // let partsToRun_sec4eventMatrix = [];
+    // let partsToRun = [];
+    // [true, tempTempoFret, tGoFrm, tTime, tNumPxTilGo, tiGoPx]
+
+    clearEventMatrix(partsToRun_eventMatrix);
+    clearEventMatrix(partsToRun_sec2eventMatrix);
+    clearEventMatrixSec3(partsToRun_sec3eventMatrixHocket);
+    clearEventMatrixSec3(partsToRun_sec3eventMatrixCres);
+    clearEventMatrixSec3(partsToRun_sec3eventMatrixAccel);
+    clearEventMatrix(partsToRun_sec4eventMatrix);
+
+    //Function to clear events and advance MESHES
+    //Run this for each section of the piece
+    function clearEventMatrix(oneEvtSectionEvtMtrx) {
+      let eventsToRmv = [];
+      notationObjects.forEach(function(no, ptrIX) {
+        var tar1 = []; //temp array to push to array of items to remove
+        tar1.push(ptrIX);
+        var tar2 = [];
+        var t_eventMatrix = oneEvtSectionEvtMtrx[ptrIX];
+        for (var evtIx = 0; evtIx < t_eventMatrix.length; evtIx++) {
+          var t_mesh = t_eventMatrix[evtIx][1];
+          var t_time = t_eventMatrix[evtIx][3];
+          //if they had already passed remove the meshes
+          if (t_time > newStartTime) {
+            //need to adjust the remaining event meshes pos.y
+            //because animator uses this to advance events
+            t_mesh.position.y = t_mesh.position.y - (PXPERFRAME * frameAdj);
+          } else {
+            var obj2Rmv = no.scene.getObjectByName(t_mesh.name);
+            no.scene.remove(obj2Rmv);
+            //Collect indexes of events to remove and remove later
+            tar2.push(evtIx);
+          }
+        }
+        tar1.push(tar2);
+        eventsToRmv.push(tar1);
+      });
+      //Remove all pased events from eventsMatrix array
+      eventsToRmv.forEach((it, ix) => {
+        var i1 = it[0];
+        var itemsToRmv = it[1];
+        for (var i = itemsToRmv.length - 1; i >= 0; i--) {
+          oneEvtSectionEvtMtrx[i1].splice(itemsToRmv[i], 1);
+        }
+      });
+
+    }
+
+    function clearEventMatrixSec3(secMtrxCollection) {
+      if (secMtrxCollection.length > 0) {
+
+        let playerNum = secMtrxCollection[0][0];
+        let evtMtrxAllParts = secMtrxCollection[0][1];
+        let eventsToRmv = [];
+        let ptrIX;
+        //get ptrIX
+        notationObjects.forEach((no, ptrIx2) => {
+          if (no.ix == playerNum) ptrIX = ptrIx2;
+        });
+        evtMtrxAllParts.forEach(function(mtrx, ix) {
+          var tar1 = []; //temp array to push to array of items to remove
+          tar1.push(ix);
+          var tar2 = [];
+          // for (var evtIx = 0; evtIx < mtrx.length; evtIx++) {
+          var t_mesh = mtrx[1];
+          var t_time = mtrx[3];
+          //if they had already passed remove the meshes
+          if (t_time > newStartTime) {
+            //need to adjust the remaining event meshes pos.y
+            //because animator uses this to advance events
+            t_mesh.position.y = t_mesh.position.y - (PXPERFRAME * frameAdj);
+          } else {
+            var obj2Rmv = notationObjects[ptrIX].scene.getObjectByName(t_mesh.name);
+            notationObjects[ptrIX].scene.remove(obj2Rmv);
+            //Collect indexes of events to remove and remove later
+            tar2.push(ix);
+          }
+          // }
+          tar1.push(tar2);
+          eventsToRmv.push(tar1);
+        });
+        //Remove all pased events from eventsMatrix array
+        eventsToRmv.forEach((it, ix) => {
+          var i1 = it[0];
+          var itemsToRmv = it[1];
+          for (var i = itemsToRmv.length - 1; i >= 0; i--) {
+            mtrx.splice(itemsToRmv[i], 1);
+          }
+        });
+
+
+      }
+
+    }
+
+
+
+
+*/
+
+
+
+
+
+
+
+/////

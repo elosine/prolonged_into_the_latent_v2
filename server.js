@@ -23,6 +23,17 @@ io.on('connection', function(socket) {
     socket.emit('pitl_startpiecebroadcast', {});
   });
   //</editor-fold> END START PIECE END
+  //<editor-fold>  < START TIME >                          //
+  socket.on('pitl_startTime', function(data) {
+    var newStartTime = data.newStartTime;
+    socket.broadcast.emit('pitl_startTimeBroadcast', {
+      newStartTime: newStartTime
+    });
+    socket.emit('pitl_startTimeBroadcast', {
+      newStartTime: newStartTime
+    });
+  });
+  //</editor-fold> END START TIME END
   //<editor-fold>  < STOP >                                //
   socket.on('pitl_stop', function(data) {
     socket.emit('pitl_stopBroadcast', {});
