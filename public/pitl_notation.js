@@ -86,6 +86,12 @@ let scoreCtrlPanel;
 let actx;
 let tonegain;
 let tone;
+let audResBtn = document.getElementById("audStBtn");
+audResBtn.addEventListener("click", function(){
+  actx.resume();
+  audResBtn.parentNode.removeChild(audResBtn);
+});
+
 //</editor-fold> END GLOBAL VARS - AUDIO END
 //<editor-fold>  < GLOBAL VARS - GATES >                 //
 var piece_hasStarted = false;
@@ -240,6 +246,8 @@ function init() {
   // Does the page have score controls?
   if (urlArgsDict.controls == 'yes') makeControlPanel = true;
   // Run loadScoreData(), everything else runs in this function as it is asynchronous
+  //INIT AUDIO
+  initAudio();
   loadScoreData();
 }
 //</editor-fold> END INIT() END
@@ -367,7 +375,6 @@ function startPiece() {
     lastFrameTimeMs = tsNow_epochTime;
     pieceStartTime_epochTime = tsNow_epochTime;
     requestAnimationFrame(animationEngine);
-    // initAudio();
   }
 }
 //</editor-fold> END START PIECE FUNCTION END
@@ -1285,8 +1292,6 @@ function mkCtrlPanel_ctrl(id, w, h, title, posArr, headerSize) {
 // SOCKET IO - START PIECE ------ >
 SOCKET.on('pitl_startpiecebroadcast', function(data) {
   if (piece_canStart) {
-    //INIT AUDIO
-    initAudio();
     piece_canStart = false;
     startBtn_isActive = false;
     stopBtn_isActive = true;
