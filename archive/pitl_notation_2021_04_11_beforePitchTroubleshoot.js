@@ -85,8 +85,8 @@ let readyBtns = [];
 //</editor-fold> END GLOBAL VARS - MISC END
 //<editor-fold>  < GLOBAL VARS - AUDIO >                   //
 let actx;
-let tonegain;
-let tone;
+let tonegain, sawgain;
+let tone, tone2;
 let audResBtn = document.getElementById("audStBtn");
 audResBtn.addEventListener("click", function() {
   actx.resume();
@@ -105,15 +105,8 @@ let makeControlPanel = false;
 let readyBtn_isActive = true;
 //</editor-fold> END GLOBAL VARS - GATES END
 //<editor-fold>  < GLOBAL VARS - TIMESYNC ENGINE >       //
-var tsServer;
-if (window.location.hostname == 'localhost') {
-  tsServer = '/timesync';
-} else {
-  tsServer = window.location.hostname + '/timesync';
-}
 const TS = timesync.create({
-  server: tsServer,
-  // server: '/timesync',
+  server: '/timesync',
   interval: 1000
 });
 //</editor-fold> > END GLOBAL VARS - TIMESYNC ENGINE END
@@ -287,7 +280,6 @@ async function loadScoreData() {
   cresDurs = tempVarsArray[4];
   sec3Accel = tempVarsArray[5];
   sec3HocketPlayers = tempVarsArray[6];
-  console.log(sec3HocketPlayers);
   sec3Cres = tempVarsArray[7];
   retrivedFileDataObj = await retriveFile('savedScoreData/timeCodeByPart.txt');
   retrivedFileData = retrivedFileDataObj.fileData;
@@ -301,7 +293,6 @@ async function loadScoreData() {
 
   retrivedFileDataObj = await retriveFile('savedScoreData/sec3HocketTimeCode.txt');
   retrivedFileData = retrivedFileDataObj.fileData;
-  console.log(retrivedFileData);
   retrivedFileData_parsed = JSON.parse(retrivedFileData);
   sec3HocketTimeCode = retrivedFileData_parsed;
 
@@ -330,21 +321,32 @@ async function loadScoreData() {
   //load svgs - 1 set for each section satb
   notes = loadNotationSVGsPerSection();
 
-  //Generate event matrices
   partsToRun.forEach((numPartToRun, ix) => {
     loadInitialNotation(numPartToRun); //loads initial pitches
+
     //load initial pitch into play tone button
     notationObjects[ix].currentPitch = currentPitches[ix][1];
+    //Generate event matrices
+
     partsToRun_eventMatrix.push(mkEventMatrixSec1_singlePart(numPartToRun));
     partsToRun_sec2eventMatrix.push(mkEventMatrixSec2_singlePart(numPartToRun));
-    sec3HocketPlayers.forEach((hp) => {
-      if (numPartToRun == hp) {
+    partsToRun_sec4eventMatrix.push(mkEventMatrixSec4_singlePart(numPartToRun));
+  });
+
+  //Sec 3.1 - Hocket
+  for (let hockPlIx = 0; hockPlIx < sec3HocketPlayers.length; hockPlIx++) {
+    for (let ptrIx = 0; ptrIx < partsToRun.length; ptrIx++) {
+      if (partsToRun[ptrIx] == sec3HocketPlayers[hockPlIx]) {
         let tar = [];
-        tar.push(hp);
-        tar.push(mkEventMatrixSec3Hocket_singlePart(numPartToRun));
+        tar.push(sec3HocketPlayers[hockPlIx]);
+        tar.push(mkEventMatrixSec3Hocket_singlePart(sec3HocketTimeCode[hockPlIx]));
         partsToRun_sec3eventMatrixHocket.push(tar);
       }
-    });
+    }
+  }
+
+  //Sec 3.2 - Cres
+  partsToRun.forEach((numPartToRun, ix) => {
     sec3Cres.forEach((cp) => {
       if (numPartToRun == cp) {
         let tar = [];
@@ -353,16 +355,29 @@ async function loadScoreData() {
         partsToRun_sec3eventMatrixCres.push(tar);
       }
     });
-    sec3Accel.forEach((ap) => {
-      if (numPartToRun == ap) {
+  });
+
+  //Sec 3.2 - Accel
+  for (let plix = 0; plix < sec3Accel.length; plix++) {
+    for (let ptrIx = 0; ptrIx < partsToRun.length; ptrIx++) {
+      if (partsToRun[ptrIx] == sec3Accel[plix]) {
         let tar = [];
-        tar.push(numPartToRun);
-        tar.push(mkEventMatrixSec3Accel_singlePart(numPartToRun));
+        tar.push(sec3Accel[plix]);
+        tar.push(mkEventMatrixSec3Accel_singlePart(sec3AccelTimeCode[plix]));
         partsToRun_sec3eventMatrixAccel.push(tar);
       }
-    });
-    partsToRun_sec4eventMatrix.push(mkEventMatrixSec4_singlePart(numPartToRun));
-  });
+    }
+  }
+
+  // sec3Accel.forEach((ap) => {
+  //   if (numPartToRun == ap) {
+  //     let tar = [];
+  //     tar.push(numPartToRun);
+  //     tar.push(mkEventMatrixSec3Accel_singlePart(numPartToRun));
+  //     partsToRun_sec3eventMatrixAccel.push(tar);
+  //   }
+  // });
+
 
   // MAKE CONTROL PANEL - if specified in URLargs
   if (makeControlPanel) {
@@ -417,14 +432,29 @@ function initAudio() {
   tone.type = 'sine';
   tone.start();
   tone.connect(tonegain);
+  // Saw Wave Oscillator
+  sawgain = actx.createGain();
+  sawgain.gain.setValueAtTime(0, actx.currentTime);
+  sawgain.connect(actx.destination);
+  sawgain.gain.linearRampToValueAtTime(0.0, actx.currentTime + 0.1);
+  tone2 = actx.createOscillator();
+  tone2.frequency.value = 440;
+  tone2.type = 'sawtooth';
+  tone2.start();
+  tone2.connect(sawgain);
 }
 //FUNCTION playTone ------------------------------------------------------ //
 function playTone(freq) {
   tone.frequency.value = freq;
+  tone2.frequency.value = freq;
   tonegain.gain.setValueAtTime(0, actx.currentTime + 0.05);
-  tonegain.gain.linearRampToValueAtTime(0.15, actx.currentTime + 0.15);
-  tonegain.gain.setValueAtTime(0.15, actx.currentTime + 0.2);
+  tonegain.gain.linearRampToValueAtTime(0.6, actx.currentTime + 0.15);
+  tonegain.gain.setValueAtTime(0.6, actx.currentTime + 0.2);
   tonegain.gain.linearRampToValueAtTime(0, actx.currentTime + 0.55);
+  sawgain.gain.setValueAtTime(0, actx.currentTime + 0.05);
+  sawgain.gain.linearRampToValueAtTime(0.04, actx.currentTime + 0.15);
+  sawgain.gain.setValueAtTime(0.04, actx.currentTime + 0.2);
+  sawgain.gain.linearRampToValueAtTime(0, actx.currentTime + 0.55);
 }
 //</editor-fold> >> END AUDIO END  ////////////////////////////////////////////
 
@@ -837,10 +867,9 @@ function mkNotationObject(ix, ptrIX, w, h, len, placementOrder) {
       notationCvsBgRect.setAttributeNS(null, "stroke-width", "0");
     }
     //REMOVE PREVIOUS NOTATION & REPLACE WITH NEW PITCHES
-    for (var i = 1; i < pitchChanges.length; i++) {
+    for (let aix = 1; aix < pitchChanges.length; aix++) {
 
-      if (pitchChanges[i][1] == framect) {
-
+      if (pitchChanges[aix][1] == framect) {
         //blink Notation Container to indicate pitch change
         notationCvsBgRect.setAttributeNS(null, "stroke-width", "20");
         pitchUnblinkFrame = framect + 40;
@@ -849,36 +878,36 @@ function mkNotationObject(ix, ptrIX, w, h, len, placementOrder) {
           for (var l = 0; l < notationCont.children.length; l++) {
             notationCont.removeChild(notationCont.children[l]);
           }
-          currentPitches[ptrIX] = parseFloat(pitchChanges[ix][2][0][ptrIX][1]);
+          currentPitches[ptrIX] = parseFloat(pitchChanges[aix][2][0][ptrIX][1]);
           notationObj.currentPitch = currentPitches[ptrIX];
-          var timg = notes[0][roundByStep(pitchChanges[i][2][0][ix][1], 0.5)];
+          var timg = notes[0][roundByStep(pitchChanges[aix][2][0][ix][1], 0.5)];
           notationCont.appendChild(timg);
         } else if (ix >= 4 && ix < 8) {
           var j = ix - 4;
           for (var l = 0; l < notationCont.children.length; l++) {
             notationCont.removeChild(notationCont.children[l]);
           }
-          currentPitches[ptrIX] = parseFloat(pitchChanges[i][2][1][j][1]);
+          currentPitches[ptrIX] = parseFloat(pitchChanges[aix][2][1][j][1]);
           notationObj.currentPitch = currentPitches[ptrIX];
-          var timg = notes[1][roundByStep(pitchChanges[i][2][1][j][1], 0.5)];
+          var timg = notes[1][roundByStep(pitchChanges[aix][2][1][j][1], 0.5)];
           notationCont.appendChild(timg);
         } else if (ix >= 8 && ix < 12) {
           var j = ix - 8;
           for (var l = 0; l < notationCont.children.length; l++) {
             notationCont.removeChild(notationCont.children[l]);
           }
-          currentPitches[ptrIX] = parseFloat(pitchChanges[i][2][2][j][1]);
+          currentPitches[ptrIX] = parseFloat(pitchChanges[aix][2][2][j][1]);
           notationObj.currentPitch = currentPitches[ptrIX];
-          var timg = notes[2][roundByStep(pitchChanges[i][2][2][j][1], 0.5)];
+          var timg = notes[2][roundByStep(pitchChanges[aix][2][2][j][1], 0.5)];
           notationCont.appendChild(timg);
         } else if (ix >= 12 && ix < 16) {
           var j = ix - 12;
           for (var l = 0; l < notationCont.children.length; l++) {
             notationCont.removeChild(notationCont.children[l]);
           }
-          currentPitches[ptrIX] = parseFloat(pitchChanges[i][2][3][j][1]);
+          currentPitches[ptrIX] = parseFloat(pitchChanges[aix][2][3][j][1]);
           notationObj.currentPitch = currentPitches[ptrIX];
-          var timg = notes[3][roundByStep(pitchChanges[i][2][3][j][1], 0.5)];
+          var timg = notes[3][roundByStep(pitchChanges[aix][2][3][j][1], 0.5)];
           notationCont.appendChild(timg);
         }
       }
@@ -1128,10 +1157,9 @@ function mkNotationObject(ix, ptrIX, w, h, len, placementOrder) {
       notationCvsBgRect.setAttributeNS(null, "stroke-width", "0");
     }
     //REMOVE PREVIOUS NOTATION & REPLACE WITH NEW PITCHES
-    for (var i = 1; i < pitchChanges.length; i++) {
+    for (let bix = 1; bix < pitchChanges.length; bix++) {
 
-      if (pitchChanges[i][1] == framect) {
-
+      if (pitchChanges[bix][1] == framect) {
         //blink Notation Container to indicate pitch change
         notationCvsBgRect.setAttributeNS(null, "stroke-width", "20");
         pitchUnblinkFrame = framect + 40;
@@ -1140,36 +1168,36 @@ function mkNotationObject(ix, ptrIX, w, h, len, placementOrder) {
           for (var l = 0; l < notationCont.children.length; l++) {
             notationCont.removeChild(notationCont.children[l]);
           }
-          currentPitches[ptrIX] = parseFloat(pitchChanges[ix][2][0][ptrIX][1]);
+          currentPitches[ptrIX] = parseFloat(pitchChanges[bix][2][0][ptrIX][1]);
           notationObj.currentPitch = currentPitches[ptrIX];
-          var timg = notes[0][roundByStep(pitchChanges[i][2][0][ix][1], 0.5)];
+          var timg = notes[0][roundByStep(pitchChanges[bix][2][0][ix][1], 0.5)];
           notationCont.appendChild(timg);
         } else if (ix >= 4 && ix < 8) {
           var j = ix - 4;
           for (var l = 0; l < notationCont.children.length; l++) {
             notationCont.removeChild(notationCont.children[l]);
           }
-          currentPitches[ptrIX] = parseFloat(pitchChanges[i][2][1][j][1]);
+          currentPitches[ptrIX] = parseFloat(pitchChanges[bix][2][1][j][1]);
           notationObj.currentPitch = currentPitches[ptrIX];
-          var timg = notes[1][roundByStep(pitchChanges[i][2][1][j][1], 0.5)];
+          var timg = notes[1][roundByStep(pitchChanges[bix][2][1][j][1], 0.5)];
           notationCont.appendChild(timg);
         } else if (ix >= 8 && ix < 12) {
           var j = ix - 8;
           for (var l = 0; l < notationCont.children.length; l++) {
             notationCont.removeChild(notationCont.children[l]);
           }
-          currentPitches[ptrIX] = parseFloat(pitchChanges[i][2][2][j][1]);
+          currentPitches[ptrIX] = parseFloat(pitchChanges[bix][2][2][j][1]);
           notationObj.currentPitch = currentPitches[ptrIX];
-          var timg = notes[2][roundByStep(pitchChanges[i][2][2][j][1], 0.5)];
+          var timg = notes[2][roundByStep(pitchChanges[bix][2][2][j][1], 0.5)];
           notationCont.appendChild(timg);
         } else if (ix >= 12 && ix < 16) {
           var j = ix - 12;
           for (var l = 0; l < notationCont.children.length; l++) {
             notationCont.removeChild(notationCont.children[l]);
           }
-          currentPitches[ptrIX] = parseFloat(pitchChanges[i][2][3][j][1]);
+          currentPitches[ptrIX] = parseFloat(pitchChanges[bix][2][3][j][1]);
           notationObj.currentPitch = currentPitches[ptrIX];
-          var timg = notes[3][roundByStep(pitchChanges[i][2][3][j][1], 0.5)];
+          var timg = notes[3][roundByStep(pitchChanges[bix][2][3][j][1], 0.5)];
           notationCont.appendChild(timg);
         }
       }
@@ -1313,7 +1341,8 @@ function mkCtrlPanel_ctrl(id, w, h, title, posArr, headerSize) {
     } else {
       btnX = 37
     }
-    let t_btn = mkButton(canvas, 'readyBtn' + i.toString(), 33, 27, 177 + (40 * (i % 8)), btnX, 'P' + i.toString(), 11, function() {});
+    let playerLbls = ['B4', 'B3', 'B2', 'B1', 'T4', 'T3', 'T2', 'T1', 'A4', 'A3', 'A2', 'A1', 'S4', 'S3', 'S2', 'S1']
+    let t_btn = mkButton(canvas, 'readyBtn' + i.toString(), 33, 27, 177 + (40 * (i % 8)), btnX, playerLbls[i], 11, function() {});
     t_btn.className = 'btn btn-ind_off';
     readyBtns.push(t_btn);
   }
@@ -1566,20 +1595,13 @@ function mkEventMatrixSec2_singlePart(partNum) {
   return tcresEventSet;
 }
 // FUNCTION: mkEventMatrixSec3 ------------------------------------------- //
-function mkEventMatrixSec3Hocket_singlePart(partNum) {
+function mkEventMatrixSec3Hocket_singlePart(timecode) {
   var tempoFretIx = 0;
   var tTempoFretSet = [];
-  let sec3HocketTimeCodeIXtoRun;
-  sec3HocketPlayers.forEach((hp, ix) => {
-    if (hp = partNum) {
-      sec3HocketTimeCodeIXtoRun = ix;
-    }
-  });
-
-  for (var j = 0; j < sec3HocketTimeCode[sec3HocketTimeCodeIXtoRun].length; j++) {
-    for (var k = 0; k < sec3HocketTimeCode[sec3HocketTimeCodeIXtoRun][j].length; k++) {
+  for (var j = 0; j < timecode.length; j++) {
+    for (var k = 0; k < timecode[j].length; k++) {
       var tTimeGopxGoFrm = [];
-      var tTime = sec3HocketTimeCode[sec3HocketTimeCodeIXtoRun][j][k];
+      var tTime = timecode[j][k];
       tTime = tTime + leadTime;
       var tNumPxTilGo = tTime * PXPERSEC;
       var tiGoPx = GOFRETPOSZ - tNumPxTilGo;
@@ -1598,6 +1620,7 @@ function mkEventMatrixSec3Hocket_singlePart(partNum) {
     }
   }
   return tTempoFretSet;
+
 }
 // FUNCTION: mkEventSection ------------------------------------------- //
 function mkEventMatrixSec3Cres_singlePart(partNum) {
@@ -1635,19 +1658,13 @@ function mkEventMatrixSec3Cres_singlePart(partNum) {
   return tcresEventSet;
 }
 // FUNCTION: mkEventMatrixSec3 ------------------------------------------- //
-function mkEventMatrixSec3Accel_singlePart(partNum) {
+function mkEventMatrixSec3Accel_singlePart(timecode) {
   var tempoFretIx = 0;
   var tTempoFretSet = [];
-  let sec3AccelTimeCodeIXtoRun;
-  sec3Accel.forEach((pn, ix) => {
-    if (pn = partNum) {
-      sec3AccelTimeCodeIXtoRun = ix;
-    }
-  });
-  for (var j = 0; j < sec3AccelTimeCode[sec3AccelTimeCodeIXtoRun].length; j++) {
-    for (var k = 0; k < sec3AccelTimeCode[sec3AccelTimeCodeIXtoRun][j].length; k++) {
+  for (var j = 0; j < timecode.length; j++) {
+    for (var k = 0; k < timecode[j].length; k++) {
       var tTimeGopxGoFrm = [];
-      var tTime = sec3AccelTimeCode[sec3AccelTimeCodeIXtoRun][j][k];
+      var tTime = timecode[j][k];
       tTime = tTime + leadTime;
       var tNumPxTilGo = tTime * PXPERSEC;
       var tiGoPx = GOFRETPOSZ - tNumPxTilGo;
@@ -1747,7 +1764,7 @@ let displayClock_panel = mkClockPanel(displayClock_div, 'left-bottom');
 displayClock_panel.smallify();
 
 function calcDisplayClock(pieceEpochTime) {
-  let pieceTimeMS = pieceEpochTime - pieceStartTime_epochTime + (clockAdj * 1000);
+  let pieceTimeMS = pieceEpochTime - pieceStartTime_epochTime + ((clockAdj-leadTime) * 1000);
   displayClock_TimeMS = pieceTimeMS % 1000;
   displayClock_TimeSec = Math.floor(pieceTimeMS / 1000) % 60;
   displayClock_TimeMin = Math.floor(pieceTimeMS / 60000) % 60;

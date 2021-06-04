@@ -85,8 +85,8 @@ let readyBtns = [];
 //</editor-fold> END GLOBAL VARS - MISC END
 //<editor-fold>  < GLOBAL VARS - AUDIO >                   //
 let actx;
-let tonegain;
-let tone;
+let tonegain, sawgain;
+let tone, tone2;
 let audResBtn = document.getElementById("audStBtn");
 audResBtn.addEventListener("click", function() {
   actx.resume();
@@ -105,15 +105,8 @@ let makeControlPanel = false;
 let readyBtn_isActive = true;
 //</editor-fold> END GLOBAL VARS - GATES END
 //<editor-fold>  < GLOBAL VARS - TIMESYNC ENGINE >       //
-var tsServer;
-if (window.location.hostname == 'localhost') {
-  tsServer = '/timesync';
-} else {
-  tsServer = window.location.hostname + '/timesync';
-}
 const TS = timesync.create({
-  server: tsServer,
-  // server: '/timesync',
+  server: '/timesync',
   interval: 1000
 });
 //</editor-fold> > END GLOBAL VARS - TIMESYNC ENGINE END
@@ -287,7 +280,6 @@ async function loadScoreData() {
   cresDurs = tempVarsArray[4];
   sec3Accel = tempVarsArray[5];
   sec3HocketPlayers = tempVarsArray[6];
-  console.log(sec3HocketPlayers);
   sec3Cres = tempVarsArray[7];
   retrivedFileDataObj = await retriveFile('savedScoreData/timeCodeByPart.txt');
   retrivedFileData = retrivedFileDataObj.fileData;
@@ -301,7 +293,6 @@ async function loadScoreData() {
 
   retrivedFileDataObj = await retriveFile('savedScoreData/sec3HocketTimeCode.txt');
   retrivedFileData = retrivedFileDataObj.fileData;
-  console.log(retrivedFileData);
   retrivedFileData_parsed = JSON.parse(retrivedFileData);
   sec3HocketTimeCode = retrivedFileData_parsed;
 
@@ -317,6 +308,7 @@ async function loadScoreData() {
 
   retrivedFileDataObj = await retriveFile('savedScoreData/sec4TimeCode.txt');
   retrivedFileData = retrivedFileDataObj.fileData;
+  console.log(retrivedFileData);
   retrivedFileData_parsed = JSON.parse(retrivedFileData);
   sec4TimeCode = retrivedFileData_parsed;
 
@@ -417,14 +409,29 @@ function initAudio() {
   tone.type = 'sine';
   tone.start();
   tone.connect(tonegain);
+  // Saw Wave Oscillator
+  sawgain = actx.createGain();
+  sawgain.gain.setValueAtTime(0, actx.currentTime);
+  sawgain.connect(actx.destination);
+  sawgain.gain.linearRampToValueAtTime(0.0, actx.currentTime + 0.1);
+  tone2 = actx.createOscillator();
+  tone2.frequency.value = 440;
+  tone2.type = 'sawtooth';
+  tone2.start();
+  tone2.connect(sawgain);
 }
 //FUNCTION playTone ------------------------------------------------------ //
 function playTone(freq) {
   tone.frequency.value = freq;
+  tone2.frequency.value = freq;
   tonegain.gain.setValueAtTime(0, actx.currentTime + 0.05);
-  tonegain.gain.linearRampToValueAtTime(0.15, actx.currentTime + 0.15);
-  tonegain.gain.setValueAtTime(0.15, actx.currentTime + 0.2);
+  tonegain.gain.linearRampToValueAtTime(0.6, actx.currentTime + 0.15);
+  tonegain.gain.setValueAtTime(0.6, actx.currentTime + 0.2);
   tonegain.gain.linearRampToValueAtTime(0, actx.currentTime + 0.55);
+  sawgain.gain.setValueAtTime(0, actx.currentTime + 0.05);
+  sawgain.gain.linearRampToValueAtTime(0.04, actx.currentTime + 0.15);
+  sawgain.gain.setValueAtTime(0.04, actx.currentTime + 0.2);
+  sawgain.gain.linearRampToValueAtTime(0, actx.currentTime + 0.55);
 }
 //</editor-fold> >> END AUDIO END  ////////////////////////////////////////////
 
@@ -1313,7 +1320,8 @@ function mkCtrlPanel_ctrl(id, w, h, title, posArr, headerSize) {
     } else {
       btnX = 37
     }
-    let t_btn = mkButton(canvas, 'readyBtn' + i.toString(), 33, 27, 177 + (40 * (i % 8)), btnX, 'P' + i.toString(), 11, function() {});
+    let playerLbls = ['B4', 'B3', 'B2', 'B1', 'T4', 'T3', 'T2', 'T1', 'A4', 'A3', 'A2', 'A1', 'S4', 'S3', 'S2', 'S1']
+    let t_btn = mkButton(canvas, 'readyBtn' + i.toString(), 33, 27, 177 + (40 * (i % 8)), btnX, playerLbls[i], 11, function() {});
     t_btn.className = 'btn btn-ind_off';
     readyBtns.push(t_btn);
   }
